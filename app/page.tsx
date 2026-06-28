@@ -24,6 +24,19 @@ export default function Home() {
       </ul> */}
 
       <ContentBox>
+        <h2 className="flex items-center gap-1 border-b border-neutral-300 mb-2"><LuNotebookText />飼育メモ</h2>
+        <div className="flex flex-col gap-1 text-sm max-h-29 overflow-y-auto palt">
+          <p>【DHH-001】エサ交換の目安時期が近づいています。</p>
+          <p>【DHH-002】エサ交換の目安時期が近づいています。</p>
+          <p>【DHH-003】エサ交換の目安時期が近づいています。</p>
+          <p>【DHH-004】エサ交換の目安時期が近づいています。</p>
+          <p>【DHH-005】エサ交換の目安時期が近づいています。</p>
+          <p>【DHH-006】エサ交換の目安時期が近づいています。</p>
+          <p>【DHH-007】エサ交換の目安時期が近づいています。</p>
+        </div>
+      </ContentBox>
+
+      <ContentBox>
         <h2 className="flex items-center gap-1 border-b border-neutral-300 mb-2"><FaList />飼育中の生体一覧</h2>
         <div className="grid grid-cols-2 gap-2">
           <LinkToListBtn>
@@ -87,19 +100,6 @@ export default function Home() {
         <h2 className="flex items-center gap-1 border-b border-neutral-300 mb-2"><TbWood />産卵セット中の生体一覧</h2>
         <div>
           <p className="py-4 w-full text-center text-sm">現在産卵セットを組んでいる生体はいません。</p>
-        </div>
-      </ContentBox>
-
-      <ContentBox>
-        <h2 className="flex items-center gap-1 border-b border-neutral-300 mb-2"><LuNotebookText />本日のタスク</h2>
-        <div className="flex flex-col gap-1 text-sm max-h-29 overflow-y-auto palt">
-          <p>【DHH-001】エサ交換の目安時期が近づいています。</p>
-          <p>【DHH-002】エサ交換の目安時期が近づいています。</p>
-          <p>【DHH-003】エサ交換の目安時期が近づいています。</p>
-          <p>【DHH-004】エサ交換の目安時期が近づいています。</p>
-          <p>【DHH-005】エサ交換の目安時期が近づいています。</p>
-          <p>【DHH-006】エサ交換の目安時期が近づいています。</p>
-          <p>【DHH-007】エサ交換の目安時期が近づいています。</p>
         </div>
       </ContentBox>
     </div>
