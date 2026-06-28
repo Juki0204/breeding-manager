@@ -19,8 +19,30 @@
   }
 }
 
-body {
+/* body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+} */
+
+.palt {
+  font-feature-settings: "palt"; 
+  letter-spacing: 0.03em;
+}
+
+.link-arrow {
+  position: relative;
+
+  &::after {
+    content: "";
+    width: 8px;
+    aspect-ratio: 1/1;
+    border: solid #999999;
+    border-width: 1px 1px 0 0;
+    rotate: 45deg;
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+    right: 8px;
+  }
 }
