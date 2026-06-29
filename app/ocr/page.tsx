@@ -16,6 +16,7 @@ const normalizeOcrText = (text: string) => {
 
 const extractId = (text: string) => {
   const normalized = normalizeOcrText(text);
+
   const match = normalized.match(/#?([A-Z]{3})-?(\d{4})/);
 
   return {
@@ -26,6 +27,7 @@ const extractId = (text: string) => {
 
 export default function OCRCameraPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
@@ -68,10 +70,12 @@ export default function OCRCameraPage() {
 
   const captureAndOcr = async () => {
     const video = videoRef.current;
+    const frame = frameRef.current;
 
-    if (!video || !cameraReady) return;
+    if (!video || !frame || !cameraReady) return;
 
     setLoading(true);
+    setCroppedPreview("");
     setOcrText("");
     setNormalizedText("");
     setId("");
@@ -80,23 +84,29 @@ export default function OCRCameraPage() {
     const start = performance.now();
 
     try {
-      const videoWidth = video.videoWidth;
-      const videoHeight = video.videoHeight;
+      const videoRect = video.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
 
-      const cropWidth = videoWidth * FRAME_WIDTH_RATIO;
-      const cropHeight = videoHeight * FRAME_HEIGHT_RATIO;
-      const cropX = (videoWidth - cropWidth) / 2;
-      const cropY = (videoHeight - cropHeight) / 2;
+      const scaleX = video.videoWidth / videoRect.width;
+      const scaleY = video.videoHeight / videoRect.height;
+
+      const cropX = (frameRect.left - videoRect.left) * scaleX;
+      const cropY = (frameRect.top - videoRect.top) * scaleY;
+      const cropWidth = frameRect.width * scaleX;
+      const cropHeight = frameRect.height * scaleY;
 
       const canvas = document.createElement("canvas");
-      const scale = 2;
+
+      const scale = 3;
 
       canvas.width = cropWidth * scale;
       canvas.height = cropHeight * scale;
 
       const ctx = canvas.getContext("2d");
 
-      if (!ctx) throw new Error("Canvas context could not be created.");
+      if (!ctx) {
+        throw new Error("Canvas context could not be created.");
+      }
 
       ctx.drawImage(
         video,
@@ -112,8 +122,12 @@ export default function OCRCameraPage() {
 
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((result) => {
-          if (!result) reject(new Error("Blob生成に失敗しました。"));
-          else resolve(result);
+          if (!result) {
+            reject(new Error("Blob生成に失敗しました。"));
+            return;
+          }
+
+          resolve(result);
         }, "image/png");
       });
 
@@ -142,8 +156,24 @@ export default function OCRCameraPage() {
   }, [stream]);
 
   return (
-    <main style={{ padding: 16, paddingBottom: 120 }}>
+    <main
+      style={{
+        padding: 16,
+        paddingBottom: 120,
+      }}
+    >
       <h1>OCRカメラテスト</h1>
+
+      <p
+        style={{
+          lineHeight: 1.7,
+          color: "#555",
+        }}
+      >
+        IDを緑の枠内に合わせて読み取ってください。
+        <br />
+        例：#ABC-0001
+      </p>
 
       <div
         style={{
@@ -164,11 +194,13 @@ export default function OCRCameraPage() {
             display: "block",
             width: "100%",
             aspectRatio: "16 / 9",
-            objectFit: "cover",
+            objectFit: "contain",
+            background: "#000",
           }}
         />
 
         <div
+          ref={frameRef}
           style={{
             position: "absolute",
             left: `${((1 - FRAME_WIDTH_RATIO) / 2) * 100}%`,
@@ -199,7 +231,13 @@ export default function OCRCameraPage() {
         </p>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 12,
+          marginTop: 16,
+        }}
+      >
         {!cameraReady ? (
           <button type="button" onClick={startCamera}>
             カメラ起動
@@ -220,6 +258,7 @@ export default function OCRCameraPage() {
       {croppedPreview && (
         <section style={{ marginTop: 24 }}>
           <h2>OCR対象エリア</h2>
+
           <img
             src={croppedPreview}
             alt="cropped"
@@ -236,12 +275,14 @@ export default function OCRCameraPage() {
 
       <section style={{ marginTop: 24 }}>
         <h2>OCR結果</h2>
+
         <pre
           style={{
             background: "#eee",
             padding: 16,
             whiteSpace: "pre-wrap",
             borderRadius: 8,
+            overflowX: "auto",
           }}
         >
           {ocrText || "-"}
@@ -250,12 +291,14 @@ export default function OCRCameraPage() {
 
       <section style={{ marginTop: 24 }}>
         <h2>正規化後</h2>
+
         <pre
           style={{
             background: "#eee",
             padding: 16,
             whiteSpace: "pre-wrap",
             borderRadius: 8,
+            overflowX: "auto",
           }}
         >
           {normalizedText || "-"}
@@ -264,13 +307,21 @@ export default function OCRCameraPage() {
 
       <section style={{ marginTop: 24 }}>
         <h2>抽出ID</h2>
-        <p style={{ fontSize: 32, fontWeight: "bold", margin: 0 }}>
+
+        <p
+          style={{
+            fontSize: 32,
+            fontWeight: "bold",
+            margin: 0,
+          }}
+        >
           {id || "検出できませんでした"}
         </p>
       </section>
 
       <section style={{ marginTop: 24 }}>
         <h2>認識時間</h2>
+
         <p>{time ? `${time} ms` : "-"}</p>
       </section>
     </main>
