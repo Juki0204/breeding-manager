@@ -130,7 +130,7 @@ export default function OCRCameraPage() {
       cropCanvas.height
     );
 
-    const dataUrl = cropCanvas.toDataURL("image/png");
+    const dataUrl = cropCanvas.toDataURL("image/jpeg");
     setCroppedPreview(dataUrl);
 
     return new Promise((resolve, reject) => {
@@ -143,8 +143,8 @@ export default function OCRCameraPage() {
 
           resolve(blob);
         },
-        "image/png",
-        1
+        "image/jpeg",
+        0.8
       );
     });
   };

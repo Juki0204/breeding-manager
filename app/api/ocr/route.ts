@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     const base64 = buffer.toString("base64");
 
     const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
+      model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite",
       contents: [
         {
           inlineData: {
@@ -34,7 +34,6 @@ export async function POST(req: Request) {
 画像内に書かれている管理IDを読み取ってください。
 
 ルール:
-- IDは「#」で始まる可能性があります
 - 英字、数字、ハイフンで構成されます
 - 例: #ABC-0001, ABC-0001, 2026-A-01
 - 読み取れない場合は null を返してください
