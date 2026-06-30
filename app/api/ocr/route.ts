@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       contents: [
         {
           inlineData: {
-            mimeType: file.type || "image/png",
+            mimeType: file.type || "image/jpeg",
             data: base64,
           },
         },
