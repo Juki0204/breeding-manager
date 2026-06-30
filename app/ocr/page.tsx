@@ -1,42 +1,59 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { recognize } from "tesseract.js";
+
+const CANVAS_SIZE = 512;
 
 const FRAME_WIDTH_RATIO = 0.9;
-const FRAME_HEIGHT_RATIO = 0.22;
-
-const normalizeOcrText = (text: string) => {
-  return text
-    .toUpperCase()
-    .replace(/[ー−–—―]/g, "-")
-    .replace(/\s+/g, "")
-    .replace(/--+/g, "-");
-};
-
-const extractId = (text: string) => {
-  const normalized = normalizeOcrText(text);
-
-  const match = normalized.match(/#?([A-Z]{3})-?(\d{4})/);
-
-  return {
-    id: match ? `${match[1]}-${match[2]}` : "",
-    normalized,
-  };
-};
+const FRAME_HEIGHT_RATIO = 0.28;
 
 export default function OCRCameraPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const frameRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationRef = useRef<number | null>(null);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [croppedPreview, setCroppedPreview] = useState("");
-  const [ocrText, setOcrText] = useState("");
-  const [normalizedText, setNormalizedText] = useState("");
-  const [id, setId] = useState("");
+  const [rawText, setRawText] = useState("");
+  const [id, setId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [time, setTime] = useState<number | null>(null);
+
+  const drawCameraToCanvas = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+
+    if (!video || !canvas || !ctx || !video.videoWidth || !video.videoHeight) {
+      animationRef.current = requestAnimationFrame(drawCameraToCanvas);
+      return;
+    }
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    // cover相当で中央トリミングして512×512に描画
+    const scale = Math.max(CANVAS_SIZE / vw, CANVAS_SIZE / vh);
+    const sw = CANVAS_SIZE / scale;
+    const sh = CANVAS_SIZE / scale;
+    const sx = (vw - sw) / 2;
+    const sy = (vh - sh) / 2;
+
+    ctx.drawImage(
+      video,
+      sx,
+      sy,
+      sw,
+      sh,
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    animationRef.current = requestAnimationFrame(drawCameraToCanvas);
+  };
 
   const startCamera = async () => {
     try {
@@ -51,11 +68,13 @@ export default function OCRCameraPage() {
 
       setStream(mediaStream);
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
-        setCameraReady(true);
-      }
+      if (!videoRef.current) return;
+
+      videoRef.current.srcObject = mediaStream;
+      await videoRef.current.play();
+
+      setCameraReady(true);
+      drawCameraToCanvas();
     } catch (error) {
       console.error(error);
       alert("カメラを起動できませんでした。HTTPS環境で確認してください。");
@@ -63,83 +82,99 @@ export default function OCRCameraPage() {
   };
 
   const stopCamera = () => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+
     stream?.getTracks().forEach((track) => track.stop());
     setStream(null);
     setCameraReady(false);
   };
 
-  const captureAndOcr = async () => {
-    const video = videoRef.current;
-    const frame = frameRef.current;
+  const createOcrImage = async (): Promise<Blob> => {
+    const sourceCanvas = canvasRef.current;
 
-    if (!video || !frame || !cameraReady) return;
+    if (!sourceCanvas) {
+      throw new Error("カメラcanvasがありません。");
+    }
+
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = CANVAS_SIZE;
+    cropCanvas.height = CANVAS_SIZE;
+
+    const ctx = cropCanvas.getContext("2d");
+
+    if (!ctx) {
+      throw new Error("Canvas context could not be created.");
+    }
+
+    const frameWidth = CANVAS_SIZE * FRAME_WIDTH_RATIO;
+    const frameHeight = CANVAS_SIZE * FRAME_HEIGHT_RATIO;
+    const frameX = (CANVAS_SIZE - frameWidth) / 2;
+    const frameY = (CANVAS_SIZE - frameHeight) / 2;
+
+    // 緑枠内だけを切り抜いて512×512へ拡大
+    ctx.drawImage(
+      sourceCanvas,
+      frameX,
+      frameY,
+      frameWidth,
+      frameHeight,
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
+
+    const dataUrl = cropCanvas.toDataURL("image/png");
+    setCroppedPreview(dataUrl);
+
+    return new Promise((resolve, reject) => {
+      cropCanvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error("Blob生成に失敗しました。"));
+            return;
+          }
+
+          resolve(blob);
+        },
+        "image/png",
+        1
+      );
+    });
+  };
+
+  const captureAndOcr = async () => {
+    if (!cameraReady) return;
 
     setLoading(true);
-    setCroppedPreview("");
-    setOcrText("");
-    setNormalizedText("");
-    setId("");
+    setRawText("");
+    setId(null);
     setTime(null);
 
     const start = performance.now();
 
     try {
-      const videoRect = video.getBoundingClientRect();
-      const frameRect = frame.getBoundingClientRect();
+      const blob = await createOcrImage();
 
-      const scaleX = video.videoWidth / videoRect.width;
-      const scaleY = video.videoHeight / videoRect.height;
+      const formData = new FormData();
+      formData.append("image", blob, "ocr-target-512.png");
 
-      const cropX = (frameRect.left - videoRect.left) * scaleX;
-      const cropY = (frameRect.top - videoRect.top) * scaleY;
-      const cropWidth = frameRect.width * scaleX;
-      const cropHeight = frameRect.height * scaleY;
-
-      const canvas = document.createElement("canvas");
-
-      const scale = 3;
-
-      canvas.width = cropWidth * scale;
-      canvas.height = cropHeight * scale;
-
-      const ctx = canvas.getContext("2d");
-
-      if (!ctx) {
-        throw new Error("Canvas context could not be created.");
-      }
-
-      ctx.drawImage(
-        video,
-        cropX,
-        cropY,
-        cropWidth,
-        cropHeight,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((result) => {
-          if (!result) {
-            reject(new Error("Blob生成に失敗しました。"));
-            return;
-          }
-
-          resolve(result);
-        }, "image/png");
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        body: formData,
       });
 
-      setCroppedPreview(canvas.toDataURL("image/png"));
+      const data = await res.json();
 
-      const result = await recognize(blob, "eng");
+      if (!res.ok) {
+        throw new Error(data.error ?? "OCR API Error");
+      }
 
-      const extracted = extractId(result.data.text);
-
-      setOcrText(result.data.text);
-      setNormalizedText(extracted.normalized);
-      setId(extracted.id);
+      setId(data.id ?? null);
+      setRawText(data.rawText ?? "");
       setTime(Math.round(performance.now() - start));
     } catch (error) {
       console.error(error);
@@ -151,64 +186,63 @@ export default function OCRCameraPage() {
 
   useEffect(() => {
     return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, [stream]);
 
   return (
-    <main
-      style={{
-        padding: 16,
-        paddingBottom: 120,
-      }}
-    >
-      <h1>OCRカメラテスト</h1>
+    <main style={{ padding: 16, paddingBottom: 120 }}>
+      <h1>Gemini OCRカメラテスト</h1>
 
-      <p
-        style={{
-          lineHeight: 1.7,
-          color: "#555",
-        }}
-      >
+      <p style={{ lineHeight: 1.7, color: "#555" }}>
         IDを緑の枠内に合わせて読み取ってください。
         <br />
         例：#ABC-0001
       </p>
 
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        style={{ display: "none" }}
+      />
+
       <div
         style={{
           position: "relative",
           width: "100%",
-          maxWidth: 700,
+          maxWidth: CANVAS_SIZE,
           margin: "0 auto",
           background: "#111",
           borderRadius: 16,
           overflow: "hidden",
         }}
       >
-        <video
-          ref={videoRef}
-          playsInline
-          muted
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_SIZE}
+          height={CANVAS_SIZE}
           style={{
             display: "block",
             width: "100%",
-            aspectRatio: "16 / 9",
-            objectFit: "contain",
+            aspectRatio: "1 / 1",
             background: "#000",
           }}
         />
 
         <div
-          ref={frameRef}
           style={{
             position: "absolute",
             left: `${((1 - FRAME_WIDTH_RATIO) / 2) * 100}%`,
             top: `${((1 - FRAME_HEIGHT_RATIO) / 2) * 100}%`,
             width: `${FRAME_WIDTH_RATIO * 100}%`,
             height: `${FRAME_HEIGHT_RATIO * 100}%`,
-            border: "3px solid #00a86b",
-            borderRadius: 10,
+            border: "2px solid #00a86b",
+            borderRadius: 8,
             boxShadow: "0 0 0 9999px rgba(0,0,0,.45)",
             pointerEvents: "none",
           }}
@@ -231,96 +265,72 @@ export default function OCRCameraPage() {
         </p>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          marginTop: 16,
-        }}
-      >
-        {!cameraReady ? (
-          <button type="button" onClick={startCamera}>
-            カメラ起動
-          </button>
-        ) : (
-          <button type="button" onClick={captureAndOcr} disabled={loading}>
-            {loading ? "解析中..." : "読み取る"}
+      <div className="justify-center" style={{ display: "flex", gap: 12, marginTop: 16 }}>
+        {cameraReady && (
+          <button type="button" className="py-2 px-4 border border-neutral-600 rounded-md" onClick={stopCamera}>
+            カメラ停止
           </button>
         )}
 
-        {cameraReady && (
-          <button type="button" onClick={stopCamera}>
-            カメラ停止
+        {!cameraReady ? (
+          <button type="button" className="py-2 px-4 bg-green-700 w-full text-white rounded-md" onClick={startCamera}>
+            カメラ起動
+          </button>
+        ) : (
+          <button type="button" className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md" onClick={captureAndOcr} disabled={loading}>
+            {loading ? "解析中..." : "読み取る"}
           </button>
         )}
       </div>
 
       {croppedPreview && (
         <section style={{ marginTop: 24 }}>
-          <h2>OCR対象エリア</h2>
+          <h2>API送信用画像 512×512</h2>
 
           <img
             src={croppedPreview}
             alt="cropped"
+            width={CANVAS_SIZE}
+            height={CANVAS_SIZE}
             style={{
               display: "block",
               width: "100%",
-              maxWidth: 700,
+              maxWidth: CANVAS_SIZE,
+              aspectRatio: "1 / 1",
               borderRadius: 12,
               border: "1px solid #ddd",
+              objectFit: "contain",
             }}
           />
         </section>
       )}
 
       <section style={{ marginTop: 24 }}>
-        <h2>OCR結果</h2>
+        <h2>読み取り結果</h2>
 
-        <pre
-          style={{
-            background: "#eee",
-            padding: 16,
-            whiteSpace: "pre-wrap",
-            borderRadius: 8,
-            overflowX: "auto",
-          }}
-        >
-          {ocrText || "-"}
-        </pre>
-      </section>
-
-      <section style={{ marginTop: 24 }}>
-        <h2>正規化後</h2>
-
-        <pre
-          style={{
-            background: "#eee",
-            padding: 16,
-            whiteSpace: "pre-wrap",
-            borderRadius: 8,
-            overflowX: "auto",
-          }}
-        >
-          {normalizedText || "-"}
-        </pre>
-      </section>
-
-      <section style={{ marginTop: 24 }}>
-        <h2>抽出ID</h2>
-
-        <p
-          style={{
-            fontSize: 32,
-            fontWeight: "bold",
-            margin: 0,
-          }}
-        >
+        <p style={{ fontSize: 32, fontWeight: "bold", margin: 0 }}>
           {id || "検出できませんでした"}
         </p>
       </section>
 
       <section style={{ marginTop: 24 }}>
-        <h2>認識時間</h2>
+        <h2>Gemini rawText</h2>
+
+        <pre
+          style={{
+            background: "#eee",
+            padding: 16,
+            whiteSpace: "pre-wrap",
+            borderRadius: 8,
+            overflowX: "auto",
+          }}
+        >
+          {rawText || "-"}
+        </pre>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2>処理時間</h2>
 
         <p>{time ? `${time} ms` : "-"}</p>
       </section>
