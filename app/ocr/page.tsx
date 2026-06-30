@@ -299,7 +299,7 @@ export default function OCRCameraPage() {
               display: "block",
               width: "100%",
               maxWidth: CANVAS_SIZE,
-              aspectRatio: "1 / 1",
+              height: "auto",
               borderRadius: 12,
               border: "1px solid #ddd",
               objectFit: "contain",
