@@ -100,19 +100,22 @@ export default function OCRCameraPage() {
     }
 
     const cropCanvas = document.createElement("canvas");
-    cropCanvas.width = CANVAS_SIZE;
-    cropCanvas.height = CANVAS_SIZE;
+    // cropCanvas.width = CANVAS_SIZE;
+    // cropCanvas.height = CANVAS_SIZE;
+
+    const frameWidth = CANVAS_SIZE * FRAME_WIDTH_RATIO;
+    const frameHeight = CANVAS_SIZE * FRAME_HEIGHT_RATIO;
+    const frameX = (CANVAS_SIZE - frameWidth) / 2;
+    const frameY = (CANVAS_SIZE - frameHeight) / 2;
+
+    cropCanvas.width = frameWidth;
+    cropCanvas.height = frameHeight;
 
     const ctx = cropCanvas.getContext("2d");
 
     if (!ctx) {
       throw new Error("Canvas context could not be created.");
     }
-
-    const frameWidth = CANVAS_SIZE * FRAME_WIDTH_RATIO;
-    const frameHeight = CANVAS_SIZE * FRAME_HEIGHT_RATIO;
-    const frameX = (CANVAS_SIZE - frameWidth) / 2;
-    const frameY = (CANVAS_SIZE - frameHeight) / 2;
 
     // 緑枠内だけを切り抜いて512×512へ拡大
     ctx.drawImage(
@@ -123,8 +126,8 @@ export default function OCRCameraPage() {
       frameHeight,
       0,
       0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
+      cropCanvas.width,
+      cropCanvas.height
     );
 
     const dataUrl = cropCanvas.toDataURL("image/png");
