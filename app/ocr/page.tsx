@@ -288,13 +288,13 @@ export default function OCRCameraPage() {
 
       {croppedPreview && (
         <section style={{ marginTop: 24 }}>
-          <h2>API送信用画像 512×512</h2>
+          <h2>API送信用画像</h2>
 
           <img
             src={croppedPreview}
             alt="cropped"
             width={CANVAS_SIZE}
-            height={CANVAS_SIZE}
+            height={CANVAS_SIZE * FRAME_HEIGHT_RATIO}
             style={{
               display: "block",
               width: "100%",
