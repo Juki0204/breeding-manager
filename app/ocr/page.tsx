@@ -11,13 +11,13 @@ const DETECTION_INTERVAL = 150;
 const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
-const DARK_LUMINANCE_THRESHOLD = 120;
-const MIN_DARK_RATE = 0.004;
-const MAX_DARK_RATE = 0.25;
+const DARK_LUMINANCE_THRESHOLD = 150;
+const MIN_DARK_RATE = 0.001;
+const MAX_DARK_RATE = 0.35;
 
-const MAX_CENTER_MOVE = 8;
-const MAX_SIZE_DIFF = 18;
-const MAX_DARK_RATE_DIFF = 0.03;
+const MAX_CENTER_MOVE = 16;
+const MAX_SIZE_DIFF = 32;
+const MAX_DARK_RATE_DIFF = 0.08;
 
 type Rect = {
   x: number;
@@ -168,26 +168,26 @@ export default function OCRCameraPage() {
     const aspectRatio = bboxWidth / bboxHeight;
 
     // 横長の文字列っぽい形だけ拾う
-    if (aspectRatio < 2.2) {
+    if (aspectRatio < 1.3) {
       return null;
     }
 
     // 小さすぎるノイズを除外
-    if (bboxWidth < monitor.w * 0.25 || bboxHeight < 14) {
+    if (bboxWidth < monitor.w * 0.12 || bboxHeight < 6) {
       return null;
     }
 
     // マージン枠の端に触れている場合は除外
     const edgePadding = 4;
 
-    if (
-      minX <= edgePadding ||
-      minY <= edgePadding ||
-      maxX >= width - edgePadding ||
-      maxY >= height - edgePadding
-    ) {
-      return null;
-    }
+    // if (
+    //   minX <= edgePadding ||
+    //   minY <= edgePadding ||
+    //   maxX >= width - edgePadding ||
+    //   maxY >= height - edgePadding
+    // ) {
+    //   return null;
+    // }
 
     const globalBox = {
       x: monitor.x + minX,
