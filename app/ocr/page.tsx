@@ -11,6 +11,7 @@ const DETECTION_INTERVAL = 150;
 const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
+// まずはかなり甘め
 const DARK_LUMINANCE_THRESHOLD = 150;
 const MIN_DARK_RATE = 0.001;
 const MAX_DARK_RATE = 0.35;
@@ -40,11 +41,15 @@ export default function OCRCameraPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const resultRef = useRef<HTMLDivElement | null>(null);
+
+  const cameraReadyRef = useRef(false);
+  const loadingRef = useRef(false);
+  const ocrRunningRef = useRef(false);
+
   const lastDetectAtRef = useRef(0);
   const prevSnapshotRef = useRef<DetectionSnapshot | null>(null);
   const stableStartedAtRef = useRef<number | null>(null);
-  const ocrRunningRef = useRef(false);
-  const resultRef = useRef<HTMLDivElement | null>(null);
 
   const [cameraReady, setCameraReady] = useState(false);
   const [croppedPreview, setCroppedPreview] = useState("");
@@ -83,25 +88,10 @@ export default function OCRCameraPage() {
     };
   };
 
-  const isSnapshotStable = (
-    current: DetectionSnapshot,
-    prev: DetectionSnapshot
-  ) => {
-    const centerMove = Math.hypot(
-      current.centerX - prev.centerX,
-      current.centerY - prev.centerY
-    );
-
-    const widthDiff = Math.abs(current.bbox.w - prev.bbox.w);
-    const heightDiff = Math.abs(current.bbox.h - prev.bbox.h);
-    const darkRateDiff = Math.abs(current.darkRate - prev.darkRate);
-
-    return (
-      centerMove <= MAX_CENTER_MOVE &&
-      widthDiff <= MAX_SIZE_DIFF &&
-      heightDiff <= MAX_SIZE_DIFF &&
-      darkRateDiff <= MAX_DARK_RATE_DIFF
-    );
+  const resetDetection = () => {
+    prevSnapshotRef.current = null;
+    stableStartedAtRef.current = null;
+    setStableMs(0);
   };
 
   const detectTextLikeShape = (): DetectionSnapshot | null => {
@@ -127,7 +117,6 @@ export default function OCRCameraPage() {
     let maxX = 0;
     let maxY = 0;
 
-    // 2px飛ばしで軽量化
     const step = 2;
 
     for (let y = 0; y < height; y += step) {
@@ -143,10 +132,10 @@ export default function OCRCameraPage() {
         if (luminance < DARK_LUMINANCE_THRESHOLD) {
           darkCount++;
 
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
         }
       }
     }
@@ -154,40 +143,17 @@ export default function OCRCameraPage() {
     const sampledPixels = Math.ceil(width / step) * Math.ceil(height / step);
     const darkRate = darkCount / sampledPixels;
 
-    if (darkRate < MIN_DARK_RATE || darkRate > MAX_DARK_RATE) {
-      return null;
-    }
+    if (darkRate < MIN_DARK_RATE || darkRate > MAX_DARK_RATE) return null;
 
     const bboxWidth = maxX - minX;
     const bboxHeight = maxY - minY;
 
-    if (bboxWidth <= 0 || bboxHeight <= 0) {
-      return null;
-    }
+    if (bboxWidth <= 0 || bboxHeight <= 0) return null;
 
     const aspectRatio = bboxWidth / bboxHeight;
 
-    // 横長の文字列っぽい形だけ拾う
-    if (aspectRatio < 1.3) {
-      return null;
-    }
-
-    // 小さすぎるノイズを除外
-    if (bboxWidth < monitor.w * 0.12 || bboxHeight < 6) {
-      return null;
-    }
-
-    // マージン枠の端に触れている場合は除外
-    const edgePadding = 4;
-
-    // if (
-    //   minX <= edgePadding ||
-    //   minY <= edgePadding ||
-    //   maxX >= width - edgePadding ||
-    //   maxY >= height - edgePadding
-    // ) {
-    //   return null;
-    // }
+    if (aspectRatio < 1.3) return null;
+    if (bboxWidth < monitor.w * 0.12 || bboxHeight < 6) return null;
 
     const globalBox = {
       x: monitor.x + minX,
@@ -204,46 +170,41 @@ export default function OCRCameraPage() {
     };
   };
 
-  const resetDetection = () => {
-    prevSnapshotRef.current = null;
-    stableStartedAtRef.current = null;
-    setStableMs(0);
-    setPhase(cameraReady ? "scanning" : "idle");
-  };
+  const isSnapshotStable = (
+    current: DetectionSnapshot,
+    prev: DetectionSnapshot
+  ) => {
+    const centerMove = Math.hypot(
+      current.centerX - prev.centerX,
+      current.centerY - prev.centerY
+    );
 
-  const stopCamera = () => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
+    const widthDiff = Math.abs(current.bbox.w - prev.bbox.w);
+    const heightDiff = Math.abs(current.bbox.h - prev.bbox.h);
+    const darkRateDiff = Math.abs(current.darkRate - prev.darkRate);
 
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-
-    setCameraReady(false);
-    setPhase((current) => (current === "ocr" || current === "done" ? current : "idle"));
-    resetDetection();
+    return (
+      centerMove <= MAX_CENTER_MOVE &&
+      widthDiff <= MAX_SIZE_DIFF &&
+      heightDiff <= MAX_SIZE_DIFF &&
+      darkRateDiff <= MAX_DARK_RATE_DIFF
+    );
   };
 
   const createOcrImage = async (): Promise<Blob> => {
     const sourceCanvas = canvasRef.current;
 
-    if (!sourceCanvas) {
-      throw new Error("カメラcanvasがありません。");
-    }
-
-    const cropCanvas = document.createElement("canvas");
+    if (!sourceCanvas) throw new Error("カメラcanvasがありません。");
 
     const frame = getFrameRect();
+    const cropCanvas = document.createElement("canvas");
 
     cropCanvas.width = frame.w;
     cropCanvas.height = frame.h;
 
     const ctx = cropCanvas.getContext("2d");
 
-    if (!ctx) {
-      throw new Error("Canvas context could not be created.");
-    }
+    if (!ctx) throw new Error("Canvas context could not be created.");
 
     ctx.drawImage(
       sourceCanvas,
@@ -276,10 +237,26 @@ export default function OCRCameraPage() {
     });
   };
 
+  const stopCamera = () => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+
+    cameraReadyRef.current = false;
+
+    setCameraReady(false);
+    resetDetection();
+  };
+
   const captureAndOcr = async () => {
     if (ocrRunningRef.current) return;
 
     ocrRunningRef.current = true;
+    loadingRef.current = true;
 
     setLoading(true);
     setPhase("ocr");
@@ -292,7 +269,6 @@ export default function OCRCameraPage() {
     try {
       const blob = await createOcrImage();
 
-      // OCRフェーズに入ったらカメラ停止
       stopCamera();
 
       setTimeout(() => {
@@ -326,12 +302,19 @@ export default function OCRCameraPage() {
       setPhase("idle");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
       ocrRunningRef.current = false;
     }
   };
 
   const runAutoDetection = (now: number) => {
-    if (!cameraReady || loading || ocrRunningRef.current) return;
+    if (
+      !cameraReadyRef.current ||
+      loadingRef.current ||
+      ocrRunningRef.current
+    ) {
+      return;
+    }
 
     if (now - lastDetectAtRef.current < DETECTION_INTERVAL) return;
 
@@ -341,6 +324,7 @@ export default function OCRCameraPage() {
 
     if (!snapshot) {
       resetDetection();
+      setPhase("scanning");
       return;
     }
 
@@ -355,7 +339,6 @@ export default function OCRCameraPage() {
     }
 
     const stable = isSnapshotStable(snapshot, prev);
-
     prevSnapshotRef.current = snapshot;
 
     if (!stable) {
@@ -365,8 +348,8 @@ export default function OCRCameraPage() {
       return;
     }
 
-    const stableStartedAt = stableStartedAtRef.current ?? now;
-    const duration = now - stableStartedAt;
+    const startedAt = stableStartedAtRef.current ?? now;
+    const duration = now - startedAt;
 
     setPhase("detecting");
     setStableMs(Math.round(duration));
@@ -420,6 +403,7 @@ export default function OCRCameraPage() {
       setTime(null);
       setPhase("scanning");
       setStableMs(0);
+      resetDetection();
 
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -437,6 +421,8 @@ export default function OCRCameraPage() {
       videoRef.current.srcObject = mediaStream;
       await videoRef.current.play();
 
+      cameraReadyRef.current = true;
+
       setCameraReady(true);
 
       if (animationRef.current) {
@@ -452,8 +438,9 @@ export default function OCRCameraPage() {
   };
 
   const toggleCamera = () => {
-    if (cameraReady) {
+    if (cameraReadyRef.current) {
       stopCamera();
+      setPhase("idle");
       return;
     }
 
@@ -547,19 +534,19 @@ export default function OCRCameraPage() {
         </p>
       </div>
 
-      <div
-        className="justify-center"
-        style={{ display: "flex", gap: 12, marginTop: 16 }}
-      >
+      <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
         <button
           type="button"
-          className={
-            cameraReady
-              ? "py-2 px-4 border border-neutral-600 rounded-md w-full"
-              : "py-2 px-4 bg-green-700 w-full text-white rounded-md"
-          }
           onClick={toggleCamera}
           disabled={loading}
+          style={{
+            width: "100%",
+            padding: "10px 16px",
+            borderRadius: 8,
+            border: cameraReady ? "1px solid #525252" : "none",
+            background: cameraReady ? "#fff" : "#15803d",
+            color: cameraReady ? "#111" : "#fff",
+          }}
         >
           {cameraReady ? "カメラ停止" : "カメラ起動"}
         </button>
