@@ -12,12 +12,12 @@ const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
 // まずはかなり甘め
-const DARK_LUMINANCE_THRESHOLD = 150;
-const MIN_DARK_RATE = 0.001;
+const DARK_LUMINANCE_THRESHOLD = 130;
+const MIN_DARK_RATE = 0.002;
 const MAX_DARK_RATE = 0.35;
 
-const MAX_CENTER_MOVE = 8;
-const MAX_SIZE_DIFF = 20;
+const MAX_CENTER_MOVE = 12;
+const MAX_SIZE_DIFF = 24;
 const MAX_DARK_RATE_DIFF = 0.04;
 
 type Rect = {
