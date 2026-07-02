@@ -16,9 +16,9 @@ const DARK_LUMINANCE_THRESHOLD = 150;
 const MIN_DARK_RATE = 0.001;
 const MAX_DARK_RATE = 0.35;
 
-const MAX_CENTER_MOVE = 16;
-const MAX_SIZE_DIFF = 32;
-const MAX_DARK_RATE_DIFF = 0.08;
+const MAX_CENTER_MOVE = 8;
+const MAX_SIZE_DIFF = 20;
+const MAX_DARK_RATE_DIFF = 0.04;
 
 type Rect = {
   x: number;
