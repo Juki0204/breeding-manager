@@ -1,6 +1,10 @@
 "use client";
 
+import ShowDetails from "@/components/common/ShowDetails";
 import { useEffect, useRef, useState } from "react";
+
+import { FaXmark } from "react-icons/fa6";
+
 
 const CANVAS_SIZE = 512;
 
@@ -11,14 +15,13 @@ const DETECTION_INTERVAL = 150;
 const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
-// まずはかなり甘め
-const DARK_LUMINANCE_THRESHOLD = 100;
-const MIN_DARK_RATE = 0.005;
-const MAX_DARK_RATE = 0.35;
+const DARK_LUMINANCE_THRESHOLD = 100; //認識する黒の濃さ
+const MIN_DARK_RATE = 0.005; //黒の最低認識画素数
+const MAX_DARK_RATE = 0.35; //黒の最高認識画素数（これ以上増えると文字として認識されない）
 
-const MAX_CENTER_MOVE = 12;
-const MAX_SIZE_DIFF = 24;
-const MAX_DARK_RATE_DIFF = 0.04;
+const MAX_CENTER_MOVE = 12; //上下左右の手ブレのしきい値
+const MAX_SIZE_DIFF = 24; //拡大・縮小の手ブレしきい値
+const MAX_DARK_RATE_DIFF = 0.04; //拡大縮小の手ブレ時の黒の画素に対してのしきい値
 
 type Rect = {
   x: number;
@@ -467,14 +470,16 @@ export default function OCRCameraPage() {
   const frameColor = isDetecting ? "#ef4444" : "#00a86b";
 
   return (
-    <main style={{ padding: 16, paddingBottom: 120 }}>
-      <h1>Gemini OCRカメラテスト</h1>
+    <main className="p-4 pt-2 pb-30">
+      {/* <h1>Gemini OCRカメラテスト</h1> */}
 
-      <p style={{ lineHeight: 1.7, color: "#555" }}>
+      <h1 className="text-center font-bold tracking-widest pb-1">個体識別スキャナー</h1>
+
+      {/* <p style={{ lineHeight: 1.7, color: "#555" }}>
         IDを枠内に合わせてください。
         <br />
         文字列が安定すると自動で読み取ります。
-      </p>
+      </p> */}
 
       <video ref={videoRef} playsInline muted style={{ display: "none" }} />
 
@@ -581,15 +586,18 @@ export default function OCRCameraPage() {
           </section>
         )}
 
-        <section style={{ marginTop: 24 }}>
-          <h2>読み取り結果</h2>
-
-          <p style={{ fontSize: 32, fontWeight: "bold", margin: 0 }}>
+        <section className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden ${id ? "bottom-0" : "-bottom-full"}`}>
+          <h2 className="pb-2 text-center font-bold">生体情報</h2>
+          <div className="absolute right-6 top-6"><FaXmark onClick={() => setId(null)} /></div>
+          {/* <p style={{ fontSize: 32, fontWeight: "bold", margin: 0 }}>
             {loading ? "解析中..." : id || "検出できませんでした"}
-          </p>
+          </p> */}
+          <ShowDetails />
         </section>
 
-        <section style={{ marginTop: 24 }}>
+        <div className={`overlay bg-black/30 w-full h-dvh fixed top-0 left-0 z-10 pointer-events-none transition-opacity duration-300 ${id ? "opacity-100" : "opacity-0"}`}></div>
+
+        <section className="mt-6">
           <h2>Gemini rawText</h2>
 
           <pre
@@ -605,7 +613,7 @@ export default function OCRCameraPage() {
           </pre>
         </section>
 
-        <section style={{ marginTop: 24 }}>
+        <section className="mt-6">
           <h2>処理時間</h2>
 
           <p>{time ? `${time} ms` : "-"}</p>
