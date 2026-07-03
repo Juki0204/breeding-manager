@@ -12,8 +12,8 @@ const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
 // まずはかなり甘め
-const DARK_LUMINANCE_THRESHOLD = 130;
-const MIN_DARK_RATE = 0.002;
+const DARK_LUMINANCE_THRESHOLD = 100;
+const MIN_DARK_RATE = 0.005;
 const MAX_DARK_RATE = 0.35;
 
 const MAX_CENTER_MOVE = 12;
@@ -430,6 +430,12 @@ export default function OCRCameraPage() {
       }
 
       animationRef.current = requestAnimationFrame(drawCameraToCanvas);
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+
     } catch (error) {
       console.error(error);
       alert("カメラを起動できませんでした。HTTPS環境で確認してください。");
