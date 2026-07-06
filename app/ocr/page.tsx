@@ -2,9 +2,7 @@
 
 import ShowDetails from "@/components/common/ShowDetails";
 import { useEffect, useRef, useState } from "react";
-
 import { FaXmark } from "react-icons/fa6";
-
 
 const CANVAS_SIZE = 512;
 
@@ -15,13 +13,13 @@ const DETECTION_INTERVAL = 150;
 const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
-const DARK_LUMINANCE_THRESHOLD = 100; //認識する黒の濃さ
-const MIN_DARK_RATE = 0.005; //黒の最低認識画素数
-const MAX_DARK_RATE = 0.35; //黒の最高認識画素数（これ以上増えると文字として認識されない）
+const DARK_LUMINANCE_THRESHOLD = 100;
+const MIN_DARK_RATE = 0.005;
+const MAX_DARK_RATE = 0.35;
 
-const MAX_CENTER_MOVE = 12; //上下左右の手ブレのしきい値
-const MAX_SIZE_DIFF = 24; //拡大・縮小の手ブレしきい値
-const MAX_DARK_RATE_DIFF = 0.04; //拡大縮小の手ブレ時の黒の画素に対してのしきい値
+const MAX_CENTER_MOVE = 12;
+const MAX_SIZE_DIFF = 24;
+const MAX_DARK_RATE_DIFF = 0.04;
 
 type Rect = {
   x: number;
@@ -62,6 +60,18 @@ export default function OCRCameraPage() {
   const [time, setTime] = useState<number | null>(null);
   const [phase, setPhase] = useState<ScanPhase>("idle");
   const [stableMs, setStableMs] = useState(0);
+  const [logs, setLogs] = useState<string[]>([]);
+
+  const log = (message: string) => {
+    const logTime = new Date().toLocaleTimeString("ja-JP", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    setLogs((prev) => [...prev, `[${logTime}] ${message}`]);
+  };
 
   const getFrameRect = (): Rect => {
     const frameWidth = CANVAS_SIZE * FRAME_WIDTH_RATIO;
@@ -195,6 +205,8 @@ export default function OCRCameraPage() {
   };
 
   const createOcrImage = async (): Promise<Blob> => {
+    const imageStart = performance.now();
+
     const sourceCanvas = canvasRef.current;
 
     if (!sourceCanvas) throw new Error("カメラcanvasがありません。");
@@ -221,26 +233,40 @@ export default function OCRCameraPage() {
       cropCanvas.height
     );
 
-    const dataUrl = cropCanvas.toDataURL("image/jpeg", 0.8);
-    setCroppedPreview(dataUrl);
+    log(`drawImage: ${(performance.now() - imageStart).toFixed(0)}ms`);
 
-    return new Promise((resolve, reject) => {
+    const previewStart = performance.now();
+    const dataUrl = cropCanvas.toDataURL("image/jpeg", 0.8);
+
+    setCroppedPreview(dataUrl);
+    log(`toDataURL: ${(performance.now() - previewStart).toFixed(0)}ms`);
+
+    const blobStart = performance.now();
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
       cropCanvas.toBlob(
-        (blob) => {
-          if (!blob) {
+        (result) => {
+          if (!result) {
             reject(new Error("Blob生成に失敗しました。"));
             return;
           }
 
-          resolve(blob);
+          resolve(result);
         },
         "image/jpeg",
         0.8
       );
     });
+
+    log(`toBlob: ${(performance.now() - blobStart).toFixed(0)}ms`);
+    log(`画像サイズ: ${(blob.size / 1024).toFixed(1)}KB`);
+
+    return blob;
   };
 
   const stopCamera = () => {
+    const stopStart = performance.now();
+
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
@@ -253,6 +279,8 @@ export default function OCRCameraPage() {
 
     setCameraReady(false);
     resetDetection();
+
+    log(`stopCamera: ${(performance.now() - stopStart).toFixed(0)}ms`);
   };
 
   const captureAndOcr = async () => {
@@ -261,46 +289,88 @@ export default function OCRCameraPage() {
     ocrRunningRef.current = true;
     loadingRef.current = true;
 
+    setLogs([]);
     setLoading(true);
     setPhase("ocr");
     setRawText("");
     setId(null);
     setTime(null);
 
-    const start = performance.now();
+    const totalStart = performance.now();
+
+    log("OCR開始");
 
     try {
+      const createStart = performance.now();
       const blob = await createOcrImage();
 
+      log(`createOcrImage合計: ${(performance.now() - createStart).toFixed(0)}ms`);
+
       stopCamera();
+
+      log("スクロール予約");
 
       setTimeout(() => {
         resultRef.current?.scrollIntoView({
           behavior: "smooth",
           block: "start",
         });
+
+        log("スクロール実行");
       }, 100);
+
+      const formStart = performance.now();
 
       const formData = new FormData();
       formData.append("image", blob, "ocr-target.jpg");
+
+      log(`FormData生成: ${(performance.now() - formStart).toFixed(0)}ms`);
+      log("Gemini API送信");
+
+      const fetchStart = performance.now();
 
       const res = await fetch("/api/ocr", {
         method: "POST",
         body: formData,
       });
 
+      log(`fetch完了: ${(performance.now() - fetchStart).toFixed(0)}ms`);
+
+      const jsonStart = performance.now();
       const data = await res.json();
+
+      log(`json解析: ${(performance.now() - jsonStart).toFixed(0)}ms`);
 
       if (!res.ok) {
         throw new Error(data.error ?? "OCR API Error");
       }
 
+      if (data.debug?.gemini) {
+        log(`Gemini処理: ${data.debug.gemini}ms`);
+      }
+
+      if (data.debug?.api) {
+        log(`API全体: ${data.debug.api}ms`);
+      }
+
       setId(data.id ?? null);
       setRawText(data.rawText ?? "");
-      setTime(Math.round(performance.now() - start));
+
+      const total = Math.round(performance.now() - totalStart);
+
+      setTime(total);
       setPhase("done");
+
+      log(`OCR結果: ${data.id ?? "検出なし"}`);
+      log(`合計: ${total}ms`);
     } catch (error) {
       console.error(error);
+
+      log(
+        `ERROR: ${error instanceof Error ? error.message : "不明なエラー"
+        }`
+      );
+
       alert("OCR処理中にエラーが発生しました。");
       setPhase("idle");
     } finally {
@@ -404,9 +474,14 @@ export default function OCRCameraPage() {
       setRawText("");
       setId(null);
       setTime(null);
+      setLogs([]);
       setPhase("scanning");
       setStableMs(0);
       resetDetection();
+
+      log("カメラ起動開始");
+
+      const cameraStart = performance.now();
 
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -417,12 +492,18 @@ export default function OCRCameraPage() {
         audio: false,
       });
 
+      log(`getUserMedia: ${(performance.now() - cameraStart).toFixed(0)}ms`);
+
       streamRef.current = mediaStream;
 
       if (!videoRef.current) return;
 
+      const playStart = performance.now();
+
       videoRef.current.srcObject = mediaStream;
       await videoRef.current.play();
+
+      log(`video.play: ${(performance.now() - playStart).toFixed(0)}ms`);
 
       cameraReadyRef.current = true;
 
@@ -439,8 +520,15 @@ export default function OCRCameraPage() {
         behavior: "smooth",
       });
 
+      log("カメラ起動完了");
     } catch (error) {
       console.error(error);
+
+      log(
+        `CAMERA ERROR: ${error instanceof Error ? error.message : "不明なエラー"
+        }`
+      );
+
       alert("カメラを起動できませんでした。HTTPS環境で確認してください。");
       setPhase("idle");
     }
@@ -471,15 +559,9 @@ export default function OCRCameraPage() {
 
   return (
     <main className="p-4 pt-2 pb-30">
-      {/* <h1>Gemini OCRカメラテスト</h1> */}
-
-      <h1 className="text-center font-bold tracking-widest pb-1">個体識別スキャナー</h1>
-
-      {/* <p style={{ lineHeight: 1.7, color: "#555" }}>
-        IDを枠内に合わせてください。
-        <br />
-        文字列が安定すると自動で読み取ります。
-      </p> */}
+      <h1 className="text-center font-bold tracking-widest pb-1">
+        個体識別スキャナー
+      </h1>
 
       <video ref={videoRef} playsInline muted style={{ display: "none" }} />
 
@@ -586,16 +668,21 @@ export default function OCRCameraPage() {
           </section>
         )}
 
-        <section className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden ${id ? "bottom-0" : "-bottom-full"}`}>
+        <section
+          className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] duration-300 ${id ? "bottom-0" : "-bottom-full"}`}
+        >
           <h2 className="pb-2 text-center font-bold">生体情報</h2>
-          <div className="absolute right-6 top-6"><FaXmark onClick={() => setId(null)} /></div>
-          {/* <p style={{ fontSize: 32, fontWeight: "bold", margin: 0 }}>
-            {loading ? "解析中..." : id || "検出できませんでした"}
-          </p> */}
+
+          <div className="absolute right-6 top-6">
+            <FaXmark onClick={() => setId(null)} />
+          </div>
+
           <ShowDetails />
         </section>
 
-        <div className={`overlay bg-black/30 w-full h-dvh fixed top-0 left-0 z-10 pointer-events-none transition-opacity duration-300 ${id ? "opacity-100" : "opacity-0"}`}></div>
+        <div
+          className={`overlay bg-black/30 w-full h-dvh fixed top-0 left-0 z-10 pointer-events-none transition-opacity duration-300 ${id ? "opacity-100" : "opacity-0"}`}
+        ></div>
 
         <section className="mt-6">
           <h2>Gemini rawText</h2>
@@ -617,6 +704,14 @@ export default function OCRCameraPage() {
           <h2>処理時間</h2>
 
           <p>{time ? `${time} ms` : "-"}</p>
+        </section>
+
+        <section className="mt-6">
+          <h2>デバッグログ</h2>
+
+          <pre className="bg-neutral-900 text-green-400 p-4 rounded-lg text-xs whitespace-pre-wrap max-h-80 overflow-auto">
+            {logs.length ? logs.join("\n") : "ログなし"}
+          </pre>
         </section>
       </div>
     </main>
