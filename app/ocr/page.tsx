@@ -235,33 +235,15 @@ export default function OCRCameraPage() {
 
     log(`drawImage: ${(performance.now() - imageStart).toFixed(0)}ms`);
 
-    const previewStart = performance.now();
+    const dataUrlStart = performance.now();
     const dataUrl = cropCanvas.toDataURL("image/jpeg", 0.8);
-
+  
     setCroppedPreview(dataUrl);
-    log(`toDataURL: ${(performance.now() - previewStart).toFixed(0)}ms`);
-
-    const blobStart = performance.now();
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      cropCanvas.toBlob(
-        (result) => {
-          if (!result) {
-            reject(new Error("Blob生成に失敗しました。"));
-            return;
-          }
-
-          resolve(result);
-        },
-        "image/jpeg",
-        0.8
-      );
-    });
-
-    log(`toBlob: ${(performance.now() - blobStart).toFixed(0)}ms`);
-    log(`画像サイズ: ${(blob.size / 1024).toFixed(1)}KB`);
-
-    return blob;
+  
+    log(`toDataURL: ${(performance.now() - dataUrlStart).toFixed(0)}ms`);
+    log(`base64サイズ: ${(dataUrl.length / 1024).toFixed(1)}KB`);
+  
+    return dataUrl;
   };
 
   const stopCamera = () => {
@@ -302,7 +284,7 @@ export default function OCRCameraPage() {
 
     try {
       const createStart = performance.now();
-      const blob = await createOcrImage();
+      const dataUrl = await createOcrImage();
 
       log(`createOcrImage合計: ${(performance.now() - createStart).toFixed(0)}ms`);
 
@@ -319,19 +301,18 @@ export default function OCRCameraPage() {
         log("スクロール実行");
       }, 100);
 
-      const formStart = performance.now();
-
-      const formData = new FormData();
-      formData.append("image", blob, "ocr-target.jpg");
-
-      log(`FormData生成: ${(performance.now() - formStart).toFixed(0)}ms`);
       log("Gemini API送信");
 
       const fetchStart = performance.now();
 
       const res = await fetch("/api/ocr", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image: dataUrl,
+        }),
       });
 
       log(`fetch完了: ${(performance.now() - fetchStart).toFixed(0)}ms`);
