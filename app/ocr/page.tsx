@@ -290,16 +290,16 @@ export default function OCRCameraPage() {
 
       stopCamera();
 
-      log("スクロール予約");
+      // log("スクロール予約");
 
-      setTimeout(() => {
-        resultRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
+      // setTimeout(() => {
+      //   resultRef.current?.scrollIntoView({
+      //     behavior: "smooth",
+      //     block: "start",
+      //   });
 
-        log("スクロール実行");
-      }, 100);
+      //   log("スクロール実行");
+      // }, 100);
 
       log("Gemini API送信");
 
@@ -496,10 +496,10 @@ export default function OCRCameraPage() {
 
       animationRef.current = requestAnimationFrame(drawCameraToCanvas);
 
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth",
-      });
+      // window.scrollTo({
+      //   top: 0,
+      //   behavior: "smooth",
+      // });
 
       log("カメラ起動完了");
     } catch (error) {
