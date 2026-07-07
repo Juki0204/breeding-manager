@@ -6,26 +6,29 @@ const ai = new GoogleGenAI({
 });
 
 export async function POST(req: Request) {
+  const apiStart = performance.now();
+  
   try {
-    const formData = await req.formData();
-    const file = formData.get("image");
+    const body = await req.json();
+    const image = body.image as string | undefined;
 
-    if (!(file instanceof Blob)) {
+    if (!image) {
       return NextResponse.json(
         { id: null, rawText: "", error: "画像がありません" },
         { status: 400 }
       );
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const base64 = buffer.toString("base64");
+    const base64 = image.replace(/^data:image\/\w+;base64,/, "");
+
+    const geminiStart = performance.now();
 
     const response = await ai.models.generateContent({
       model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
       contents: [
         {
           inlineData: {
-            mimeType: file.type || "image/jpeg",
+            mimeType: "image/jpeg",
             data: base64,
           },
         },
@@ -65,18 +68,31 @@ export async function POST(req: Request) {
       },
     });
 
+    const geminiTime = performance.now() - geminiStart;
+
     const text = response.text ?? "{}";
     const json = JSON.parse(text);
 
     return NextResponse.json({
       id: json.id ?? null,
       rawText: json.rawText ?? "",
+      debug: {
+        gemini: Math.round(geminiTime),
+        api: Math.round(performance.now() - apiStart),
+      },
     });
   } catch (error) {
-    console.error(error);
+    console.error("Gemini OCR error:", error);
 
     return NextResponse.json(
-      { id: null, rawText: "", error: "OCR処理に失敗しました" },
+      {
+        id: null,
+        rawText: "",
+        error:
+          error instanceof Error
+            ? error.message
+            : "OCR処理に失敗しました",
+      },
       { status: 500 }
     );
   }
