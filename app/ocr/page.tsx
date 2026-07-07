@@ -204,7 +204,7 @@ export default function OCRCameraPage() {
     );
   };
 
-  const createOcrImage = async (): Promise<Blob> => {
+  const createOcrImage = async (): Promise<string> => {
     const imageStart = performance.now();
 
     const sourceCanvas = canvasRef.current;
