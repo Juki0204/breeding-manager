@@ -1,9 +1,37 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 import { IoMdMale, IoMdFemale } from "react-icons/io";
 
 
+interface ShowDetailsProps {
+  id?: string;
+}
 
+export default function ShowDetails({ id }: ShowDetailsProps) {
+  const [selected, setSelected] = useState<string | null>(id ?? null);
 
-export default function ShowDetails() {
+  useEffect(() => {
+    if (!selected) return;
+
+    const scrollY = window.scrollY;
+
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+
+    return () => {
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+
+      window.scrollTo(0, scrollY);
+    };
+  }, [selected]);
+
   return (
     <div className="grid grid-cols-12 gap-1">
 

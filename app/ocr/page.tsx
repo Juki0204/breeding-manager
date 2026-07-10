@@ -359,6 +359,8 @@ export default function OCRCameraPage() {
       setLoading(false);
       loadingRef.current = false;
       ocrRunningRef.current = false;
+
+      setIsSearching(false);
     }
   };
 
@@ -529,6 +531,8 @@ export default function OCRCameraPage() {
   }
 
   useEffect(() => {
+    toggleCamera();
+
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
@@ -546,6 +550,13 @@ export default function OCRCameraPage() {
       <h1 className="text-center font-bold tracking-widest pb-1">
         個体識別スキャナー
       </h1>
+
+      <ol className="text-sm list-decimal p-2 pl-6 mb-4 bg-neutral-200 rounded-xl">
+        {/* <li>カメラ起動ボタンを押す</li> */}
+        <li>緑の枠内にラベルのIDが書かれた部分を収める</li>
+        <li>そのまま約1秒ほどキープすると解析開始</li>
+        <li>解析が完了（2～3秒）⇒ 結果を表示</li>
+      </ol>
 
       <video ref={videoRef} playsInline muted style={{ display: "none" }} />
 
@@ -661,7 +672,7 @@ export default function OCRCameraPage() {
             <FaXmark onClick={closeSearchResult} />
           </div>
 
-          <ShowDetails />
+          <ShowDetails id={id ?? ""} />
         </section>
 
         <Loader
