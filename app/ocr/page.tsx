@@ -1,5 +1,6 @@
 "use client";
 
+import Loader from "@/components/common/Loader";
 import ShowDetails from "@/components/common/ShowDetails";
 import { useEffect, useRef, useState } from "react";
 import { FaXmark } from "react-icons/fa6";
@@ -10,10 +11,10 @@ const FRAME_WIDTH_RATIO = 0.9;
 const FRAME_HEIGHT_RATIO = 0.28;
 
 const DETECTION_INTERVAL = 150;
-const STABLE_REQUIRED_MS = 900;
+const STABLE_REQUIRED_MS = 700;
 const MARGIN_PX = 24;
 
-const DARK_LUMINANCE_THRESHOLD = 100;
+const DARK_LUMINANCE_THRESHOLD = 80;
 const MIN_DARK_RATE = 0.005;
 const MAX_DARK_RATE = 0.35;
 
@@ -61,6 +62,10 @@ export default function OCRCameraPage() {
   const [phase, setPhase] = useState<ScanPhase>("idle");
   const [stableMs, setStableMs] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
+
+  const [isSearching, setIsSearching] = useState<boolean>(false); //サーチ中フラグ
+  const [searchFinished, setSearchFinished] = useState<boolean>(false); //サーチ完了フラグ
+  const [isResultOpen, setIsResultOpen] = useState<boolean>(false); //詳細表示中フラグ
 
   const log = (message: string) => {
     const logTime = new Date().toLocaleTimeString("ja-JP", {
@@ -237,12 +242,12 @@ export default function OCRCameraPage() {
 
     const dataUrlStart = performance.now();
     const dataUrl = cropCanvas.toDataURL("image/jpeg", 0.8);
-  
+
     setCroppedPreview(dataUrl);
-  
+
     log(`toDataURL: ${(performance.now() - dataUrlStart).toFixed(0)}ms`);
     log(`base64サイズ: ${(dataUrl.length / 1024).toFixed(1)}KB`);
-  
+
     return dataUrl;
   };
 
@@ -290,18 +295,10 @@ export default function OCRCameraPage() {
 
       stopCamera();
 
-      // log("スクロール予約");
-
-      // setTimeout(() => {
-      //   resultRef.current?.scrollIntoView({
-      //     behavior: "smooth",
-      //     block: "start",
-      //   });
-
-      //   log("スクロール実行");
-      // }, 100);
-
       log("Gemini API送信");
+
+      /* ここでローダーを出す */
+      setIsSearching(true);
 
       const fetchStart = performance.now();
 
@@ -336,6 +333,10 @@ export default function OCRCameraPage() {
 
       setId(data.id ?? null);
       setRawText(data.rawText ?? "");
+
+      /* ここでローダーを消す、オーバーレイを出す、詳細にidを受け渡す */
+      setSearchFinished(true);
+      setIsResultOpen(true);
 
       const total = Math.round(performance.now() - totalStart);
 
@@ -496,11 +497,6 @@ export default function OCRCameraPage() {
 
       animationRef.current = requestAnimationFrame(drawCameraToCanvas);
 
-      // window.scrollTo({
-      //   top: 0,
-      //   behavior: "smooth",
-      // });
-
       log("カメラ起動完了");
     } catch (error) {
       console.error(error);
@@ -524,6 +520,13 @@ export default function OCRCameraPage() {
 
     startCamera();
   };
+
+  const closeSearchResult = () => {
+    setId(null);
+    setIsSearching(false);
+    setSearchFinished(false);
+    setIsResultOpen(false);
+  }
 
   useEffect(() => {
     return () => {
@@ -650,20 +653,26 @@ export default function OCRCameraPage() {
         )}
 
         <section
-          className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] duration-300 ${id ? "bottom-0" : "-bottom-full"}`}
+          className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] delay-1000 duration-300 ${isResultOpen ? "bottom-0" : "-bottom-full"}`}
         >
           <h2 className="pb-2 text-center font-bold">生体情報</h2>
 
           <div className="absolute right-6 top-6">
-            <FaXmark onClick={() => setId(null)} />
+            <FaXmark onClick={closeSearchResult} />
           </div>
 
           <ShowDetails />
         </section>
 
-        <div
-          className={`overlay bg-black/30 w-full h-dvh fixed top-0 left-0 z-10 pointer-events-none transition-opacity duration-300 ${id ? "opacity-100" : "opacity-0"}`}
-        ></div>
+        <Loader
+          show={isSearching}
+          success={searchFinished}
+          image="/img/beetle_loader.png"
+        />
+
+        {/* <div
+          className={`overlay bg-black/50 w-full h-dvh fixed top-0 left-0 z-10 pointer-events-none transition-opacity duration-300 ${id ? "opacity-100" : "opacity-0"}`}
+        ></div> */}
 
         <section className="mt-6">
           <h2>Gemini rawText</h2>
