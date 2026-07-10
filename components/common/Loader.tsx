@@ -14,7 +14,7 @@ export default function Loader({
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 z-10 grid place-items-center bg-white/70">
+    <div className="fixed inset-0 z-10 grid place-items-center bg-black/50">
 
       <div className="w-72">
 

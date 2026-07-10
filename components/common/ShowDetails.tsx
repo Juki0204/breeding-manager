@@ -6,7 +6,7 @@ import { IoMdMale, IoMdFemale } from "react-icons/io";
 
 
 interface ShowDetailsProps {
-  id?: string;
+  id?: string | null;
 }
 
 export default function ShowDetails({ id }: ShowDetailsProps) {

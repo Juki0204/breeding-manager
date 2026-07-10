@@ -11,10 +11,10 @@ const FRAME_WIDTH_RATIO = 0.9;
 const FRAME_HEIGHT_RATIO = 0.28;
 
 const DETECTION_INTERVAL = 150;
-const STABLE_REQUIRED_MS = 700;
+const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
-const DARK_LUMINANCE_THRESHOLD = 80;
+const DARK_LUMINANCE_THRESHOLD = 50;
 const MIN_DARK_RATE = 0.005;
 const MAX_DARK_RATE = 0.35;
 
@@ -355,12 +355,12 @@ export default function OCRCameraPage() {
 
       alert("OCR処理中にエラーが発生しました。");
       setPhase("idle");
+      setIsSearching(false);
+
     } finally {
       setLoading(false);
       loadingRef.current = false;
       ocrRunningRef.current = false;
-
-      setIsSearching(false);
     }
   };
 
@@ -672,7 +672,7 @@ export default function OCRCameraPage() {
             <FaXmark onClick={closeSearchResult} />
           </div>
 
-          <ShowDetails id={id ?? ""} />
+          <ShowDetails id={id ?? null} />
         </section>
 
         <Loader
