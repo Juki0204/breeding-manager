@@ -663,7 +663,7 @@ export default function OCRCameraPage() {
           </section>
         )}
 
-        <section
+        {id && (<section
           className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] delay-1000 duration-300 ${isResultOpen ? "bottom-0" : "-bottom-full"}`}
         >
           <h2 className="pb-2 text-center font-bold">生体情報</h2>
@@ -673,7 +673,7 @@ export default function OCRCameraPage() {
           </div>
 
           <ShowDetails id={id ?? null} />
-        </section>
+        </section>)}
 
         <Loader
           show={isSearching}
