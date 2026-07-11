@@ -668,7 +668,7 @@ export default function OCRCameraPage() {
         )}
 
         <section
-          className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] delay-1000 duration-300 ${isResultOpen ? "bottom-0" : "-bottom-full"}`}
+          className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] duration-300 ${isResultOpen ? "delay-1000 bottom-0" : "-bottom-full"}`}
         >
           <h2 className="pb-2 text-center font-bold">生体情報</h2>
 
