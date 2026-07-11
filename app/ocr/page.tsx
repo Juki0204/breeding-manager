@@ -335,8 +335,12 @@ export default function OCRCameraPage() {
       setRawText(data.rawText ?? "");
 
       /* ここでローダーを消す、オーバーレイを出す、詳細にidを受け渡す */
-      setSearchFinished(true);
-      setIsResultOpen(true);
+      if(data.id) {
+        setSearchFinished(true);
+        setIsResultOpen(true);
+      } else {
+        setIsSearching(false);
+      }
 
       const total = Math.round(performance.now() - totalStart);
 
