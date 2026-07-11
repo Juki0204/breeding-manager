@@ -14,7 +14,7 @@ const DETECTION_INTERVAL = 150;
 const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
-const DARK_LUMINANCE_THRESHOLD = 50;
+const DARK_LUMINANCE_THRESHOLD = 80;
 const MIN_DARK_RATE = 0.005;
 const MAX_DARK_RATE = 0.35;
 
@@ -667,7 +667,7 @@ export default function OCRCameraPage() {
           </section>
         )}
 
-        {id && (<section
+        <section
           className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] delay-1000 duration-300 ${isResultOpen ? "bottom-0" : "-bottom-full"}`}
         >
           <h2 className="pb-2 text-center font-bold">生体情報</h2>
@@ -677,7 +677,7 @@ export default function OCRCameraPage() {
           </div>
 
           <ShowDetails id={id ?? null} />
-        </section>)}
+        </section>
 
         <Loader
           show={isSearching}
