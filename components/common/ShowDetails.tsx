@@ -51,7 +51,7 @@ export default function ShowDetails({ id }: ShowDetailsProps) {
         />
       </div>
 
-      <div className="col-span-12 text-sm font-bold">DHH-0001</div>
+      {/* <div className="col-span-12 text-sm font-bold">DHH-0001</div> */}
 
       <h3 className="col-span-12 flex gap-1 items-center pt-1 text-lg font-bold">
         <IoMdMale className="text-blue-600" />
@@ -62,35 +62,35 @@ export default function ShowDetails({ id }: ShowDetailsProps) {
       </div>
 
       <div className="col-span-12 flex gap-1 items-center pb-1 font-normal text-sm border-b border-neutral-200">
-        <span className="py-px px-2 rounded-sm bg-green-700 text-white">産地</span>
+        <span className="w-15 text-center py-px px-2 rounded-sm bg-green-700 text-white">産地</span>
         フランス グアドループ産
       </div>
 
       <div className="col-span-12 flex gap-1 items-center pb-1 font-normal text-sm border-b border-neutral-200">
-        <span className="py-px px-2 rounded-sm bg-green-700 text-white">血統</span>
+        <span className="w-15 text-center py-px px-2 rounded-sm bg-green-700 text-white">血統</span>
         -
       </div>
 
       <div className="col-span-12 grid grid-cols-2 gap-1 items-center pb-1 font-normal text-sm border-b border-neutral-200">
         <div className="flex gap-1 items-center">
-          <span className="py-px px-2 rounded-sm bg-green-700 text-white">状態</span>
+          <span className="w-15 text-center py-px px-2 rounded-sm bg-green-700 text-white">状態</span>
           成虫
         </div>
 
         <div className="flex gap-1 items-center">
-          <span className="py-px px-2 rounded-sm bg-green-700 text-white">累代</span>
+          <span className="w-15 text-center py-px px-2 rounded-sm bg-green-700 text-white">累代</span>
           CBF2
         </div>
       </div>
 
       <div className="col-span-12 grid grid-cols-2 gap-1 items-center pb-1 font-normal text-sm">
         <div className="flex gap-1 items-center">
-          <span className="py-px px-2 rounded-sm bg-green-700 text-white">サイズ</span>
+          <span className="w-15 text-center py-px px-2 rounded-sm bg-green-700 text-white">サイズ</span>
           150mm
         </div>
 
         <div className="flex gap-1 items-center">
-          <span className="py-px px-2 rounded-sm bg-green-700 text-white">羽化日</span>
+          <span className="w-15 text-center py-px px-2 rounded-sm bg-green-700 text-white">羽化日</span>
           2026-04-26
         </div>
       </div>
