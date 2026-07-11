@@ -535,8 +535,6 @@ export default function OCRCameraPage() {
   }
 
   useEffect(() => {
-    toggleCamera();
-
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
