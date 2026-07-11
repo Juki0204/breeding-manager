@@ -670,7 +670,7 @@ export default function OCRCameraPage() {
         <section
           className={`mt-6 w-full p-6 pb-20 fixed left-0 z-20 bg-neutral-100 rounded-t-3xl shadow-3xl overflow-hidden transition-[bottom] duration-300 ${isResultOpen ? "delay-1000 bottom-0" : "-bottom-full"}`}
         >
-          <h2 className="pb-2 text-center font-bold">生体情報</h2>
+          {id && <h2 className="pb-2 text-center font-bold">{id}</h2>}
 
           <div className="absolute right-6 top-6">
             <FaXmark onClick={closeSearchResult} />
