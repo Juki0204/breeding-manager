@@ -22,6 +22,17 @@ const MAX_CENTER_MOVE = 12;
 const MAX_SIZE_DIFF = 24;
 const MAX_DARK_RATE_DIFF = 0.04;
 
+// OpenCV.jsによる「文字列らしさ」判定
+const MIN_COMPONENT_COUNT = 3;
+const MIN_TEXT_ASPECT_RATIO = 1.3;
+const MAX_VERTICAL_CENTER_SPREAD_RATE = 0.6;
+const MAX_LARGEST_COMPONENT_RATE = 0.72;
+
+// 点状ノイズだけを除外するため、かなり緩めに設定
+const MIN_COMPONENT_AREA = 3;
+const MIN_COMPONENT_WIDTH = 2;
+const MIN_COMPONENT_HEIGHT = 2;
+
 type Rect = {
   x: number;
   y: number;
@@ -36,6 +47,26 @@ type DetectionSnapshot = {
   centerY: number;
 };
 
+type TextComponent = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  area: number;
+  centerX: number;
+  centerY: number;
+};
+
+type TextLikeAnalysis = {
+  components: TextComponent[];
+  bbox: Rect;
+};
+
+type OpenCv = typeof import("@techstark/opencv-js");
+type OpenCvModule = OpenCv & {
+  onRuntimeInitialized?: () => void;
+};
+
 type ScanPhase = "idle" | "scanning" | "detecting" | "ocr" | "done";
 
 export default function OCRCameraPage() {
@@ -44,6 +75,7 @@ export default function OCRCameraPage() {
   const animationRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const cvRef = useRef<OpenCv | null>(null);
 
   const cameraReadyRef = useRef(false);
   const loadingRef = useRef(false);
@@ -62,6 +94,7 @@ export default function OCRCameraPage() {
   const [phase, setPhase] = useState<ScanPhase>("idle");
   const [stableMs, setStableMs] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
+  const [openCvReady, setOpenCvReady] = useState(false);
 
   const [isSearching, setIsSearching] = useState<boolean>(false); //サーチ中フラグ
   const [searchFinished, setSearchFinished] = useState<boolean>(false); //サーチ完了フラグ
@@ -112,48 +145,172 @@ export default function OCRCameraPage() {
     setStableMs(0);
   };
 
+  const analyzeTextLikeComponents = (
+    imageData: ImageData,
+  ): TextLikeAnalysis | null => {
+    const cv = cvRef.current;
+
+    if (!cv) return null;
+
+    let src: InstanceType<OpenCv["Mat"]> | null = null;
+    let gray: InstanceType<OpenCv["Mat"]> | null = null;
+    let binary: InstanceType<OpenCv["Mat"]> | null = null;
+    let contours: InstanceType<OpenCv["MatVector"]> | null = null;
+    let hierarchy: InstanceType<OpenCv["Mat"]> | null = null;
+
+    try {
+      src = cv.matFromImageData(imageData);
+      gray = new cv.Mat();
+      binary = new cv.Mat();
+      contours = new cv.MatVector();
+      hierarchy = new cv.Mat();
+
+      // CanvasのRGBA画像をグレースケール化
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+      // 暗い文字・線を白、背景を黒に反転
+      cv.threshold(
+        gray,
+        binary,
+        DARK_LUMINANCE_THRESHOLD,
+        255,
+        cv.THRESH_BINARY_INV,
+      );
+
+      // 文字内部の穴を別カウントしないよう、外側輪郭だけ取得
+      cv.findContours(
+        binary,
+        contours,
+        hierarchy,
+        cv.RETR_EXTERNAL,
+        cv.CHAIN_APPROX_SIMPLE,
+      );
+
+      const components: TextComponent[] = [];
+
+      for (let index = 0; index < contours.size(); index++) {
+        const contour = contours.get(index);
+
+        try {
+          const area = cv.contourArea(contour);
+          const rect = cv.boundingRect(contour);
+
+          // ハイフンや#を残しつつ、点状ノイズだけ除外
+          if (
+            area < MIN_COMPONENT_AREA ||
+            rect.width < MIN_COMPONENT_WIDTH ||
+            rect.height < MIN_COMPONENT_HEIGHT
+          ) {
+            continue;
+          }
+
+          components.push({
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+            area,
+            centerX: rect.x + rect.width / 2,
+            centerY: rect.y + rect.height / 2,
+          });
+        } finally {
+          contour.delete();
+        }
+      }
+
+      // 条件1：文字の塊が3個以上ある
+      if (components.length < MIN_COMPONENT_COUNT) return null;
+
+      const minX = Math.min(...components.map((component) => component.x));
+      const minY = Math.min(...components.map((component) => component.y));
+      const maxX = Math.max(
+        ...components.map((component) => component.x + component.w),
+      );
+      const maxY = Math.max(
+        ...components.map((component) => component.y + component.h),
+      );
+
+      const bbox: Rect = {
+        x: minX,
+        y: minY,
+        w: maxX - minX,
+        h: maxY - minY,
+      };
+
+      if (bbox.w <= 0 || bbox.h <= 0) return null;
+
+      // 条件2：全体が横長
+      if (bbox.w / bbox.h < MIN_TEXT_ASPECT_RATIO) return null;
+
+      // 条件3：各輪郭が概ね横方向に並んでいる
+      // 文字サイズ自体は比較しないので、ハイフンや#の小ささは許容する
+      const centerYs = components.map((component) => component.centerY);
+      const centerYSpread = Math.max(...centerYs) - Math.min(...centerYs);
+
+      if (centerYSpread > bbox.h * MAX_VERTICAL_CENTER_SPREAD_RATE) {
+        return null;
+      }
+
+      // 条件4：1つの巨大な塊が全体を占有していない
+      const totalArea = components.reduce(
+        (total, component) => total + component.area,
+        0,
+      );
+      const largestArea = Math.max(
+        ...components.map((component) => component.area),
+      );
+
+      if (
+        totalArea <= 0 ||
+        largestArea / totalArea > MAX_LARGEST_COMPONENT_RATE
+      ) {
+        return null;
+      }
+
+      return { components, bbox };
+    } catch (error) {
+      console.error("OpenCV text detection error:", error);
+      return null;
+    } finally {
+      // OpenCV.jsのMatは必ず明示的に解放する
+      src?.delete();
+      gray?.delete();
+      binary?.delete();
+      contours?.delete();
+      hierarchy?.delete();
+    }
+  };
+
   const detectTextLikeShape = (): DetectionSnapshot | null => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d", { willReadFrequently: true });
 
-    if (!canvas || !ctx) return null;
+    if (!canvas || !ctx || !cvRef.current) return null;
 
     const monitor = getMonitorRect();
-
     const imageData = ctx.getImageData(
       monitor.x,
       monitor.y,
       monitor.w,
-      monitor.h
+      monitor.h,
     );
 
     const { data, width, height } = imageData;
 
+    // 既存の軽量な黒ピクセル率判定を第1ゲートとして残す
     let darkCount = 0;
-    let minX = width;
-    let minY = height;
-    let maxX = 0;
-    let maxY = 0;
-
     const step = 2;
 
     for (let y = 0; y < height; y += step) {
       for (let x = 0; x < width; x += step) {
         const index = (y * width + x) * 4;
-
         const r = data[index];
         const g = data[index + 1];
         const b = data[index + 2];
-
         const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
 
         if (luminance < DARK_LUMINANCE_THRESHOLD) {
           darkCount++;
-
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
         }
       }
     }
@@ -163,22 +320,20 @@ export default function OCRCameraPage() {
 
     if (darkRate < MIN_DARK_RATE || darkRate > MAX_DARK_RATE) return null;
 
-    const bboxWidth = maxX - minX;
-    const bboxHeight = maxY - minY;
+    // 第2ゲート：OpenCVで4条件を満たす文字列形状か判定
+    const analysis = analyzeTextLikeComponents(imageData);
 
-    if (bboxWidth <= 0 || bboxHeight <= 0) return null;
+    if (!analysis) return null;
 
-    const aspectRatio = bboxWidth / bboxHeight;
-
-    if (aspectRatio < 1.3) return null;
-    if (bboxWidth < monitor.w * 0.12 || bboxHeight < 6) return null;
-
-    const globalBox = {
-      x: monitor.x + minX,
-      y: monitor.y + minY,
-      w: bboxWidth,
-      h: bboxHeight,
+    const globalBox: Rect = {
+      x: monitor.x + analysis.bbox.x,
+      y: monitor.y + analysis.bbox.y,
+      w: analysis.bbox.w,
+      h: analysis.bbox.h,
     };
+
+    // 元の最低サイズ判定は維持
+    if (globalBox.w < monitor.w * 0.12 || globalBox.h < 6) return null;
 
     return {
       bbox: globalBox,
@@ -190,11 +345,11 @@ export default function OCRCameraPage() {
 
   const isSnapshotStable = (
     current: DetectionSnapshot,
-    prev: DetectionSnapshot
+    prev: DetectionSnapshot,
   ) => {
     const centerMove = Math.hypot(
       current.centerX - prev.centerX,
-      current.centerY - prev.centerY
+      current.centerY - prev.centerY,
     );
 
     const widthDiff = Math.abs(current.bbox.w - prev.bbox.w);
@@ -235,7 +390,7 @@ export default function OCRCameraPage() {
       0,
       0,
       cropCanvas.width,
-      cropCanvas.height
+      cropCanvas.height,
     );
 
     log(`drawImage: ${(performance.now() - imageStart).toFixed(0)}ms`);
@@ -291,7 +446,9 @@ export default function OCRCameraPage() {
       const createStart = performance.now();
       const dataUrl = await createOcrImage();
 
-      log(`createOcrImage合計: ${(performance.now() - createStart).toFixed(0)}ms`);
+      log(
+        `createOcrImage合計: ${(performance.now() - createStart).toFixed(0)}ms`,
+      );
 
       stopCamera();
 
@@ -335,7 +492,7 @@ export default function OCRCameraPage() {
       setRawText(data.rawText ?? "");
 
       /* ここでローダーを消す、オーバーレイを出す、詳細にidを受け渡す */
-      if(data.id) {
+      if (data.id) {
         setSearchFinished(true);
         setIsResultOpen(true);
       } else {
@@ -352,15 +509,11 @@ export default function OCRCameraPage() {
     } catch (error) {
       console.error(error);
 
-      log(
-        `ERROR: ${error instanceof Error ? error.message : "不明なエラー"
-        }`
-      );
+      log(`ERROR: ${error instanceof Error ? error.message : "不明なエラー"}`);
 
       alert("OCR処理中にエラーが発生しました。");
       setPhase("idle");
       setIsSearching(false);
-
     } finally {
       setLoading(false);
       loadingRef.current = false;
@@ -371,6 +524,7 @@ export default function OCRCameraPage() {
   const runAutoDetection = (now: number) => {
     if (
       !cameraReadyRef.current ||
+      !cvRef.current ||
       loadingRef.current ||
       ocrRunningRef.current
     ) {
@@ -439,17 +593,7 @@ export default function OCRCameraPage() {
     const sx = (vw - sw) / 2;
     const sy = (vh - sh) / 2;
 
-    ctx.drawImage(
-      video,
-      sx,
-      sy,
-      sw,
-      sh,
-      0,
-      0,
-      CANVAS_SIZE,
-      CANVAS_SIZE
-    );
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
     runAutoDetection(now);
 
@@ -509,7 +653,7 @@ export default function OCRCameraPage() {
 
       log(
         `CAMERA ERROR: ${error instanceof Error ? error.message : "不明なエラー"
-        }`
+        }`,
       );
 
       alert("カメラを起動できませんでした。HTTPS環境で確認してください。");
@@ -532,7 +676,53 @@ export default function OCRCameraPage() {
     setIsSearching(false);
     setSearchFinished(false);
     setIsResultOpen(false);
-  }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeOpenCv = async () => {
+      try {
+        log("OpenCV.js読み込み開始");
+
+        const imported = await import("@techstark/opencv-js");
+        const importedWithDefault = imported as typeof imported & {
+          default?: OpenCvModule | Promise<OpenCvModule>;
+        };
+
+        const moduleCandidate = importedWithDefault.default ?? imported;
+        const cvModule = (await moduleCandidate) as OpenCvModule;
+
+        if (!cvModule.Mat) {
+          await new Promise<void>((resolve) => {
+            cvModule.onRuntimeInitialized = () => resolve();
+          });
+        }
+
+        if (!mounted) return;
+
+        cvRef.current = cvModule;
+        setOpenCvReady(true);
+        log("OpenCV.js読み込み完了");
+      } catch (error) {
+        console.error(error);
+        setOpenCvReady(false);
+        log(
+          `OpenCV ERROR: ${error instanceof Error
+            ? error.message
+            : "OpenCV.jsの初期化に失敗しました。"
+          }`,
+        );
+      }
+    };
+
+    void initializeOpenCv();
+
+    return () => {
+      mounted = false;
+      cvRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -554,7 +744,7 @@ export default function OCRCameraPage() {
       </h1>
 
       <ol className="text-sm list-decimal p-2 pl-6 mb-4 bg-neutral-200 rounded-xl">
-        {/* <li>カメラ起動ボタンを押す</li> */}
+        <li>カメラ起動ボタンを押す</li>
         <li>緑の枠内にラベルのIDが書かれた部分を収める</li>
         <li>そのまま約1秒ほどキープすると解析開始</li>
         <li>解析が完了（2～3秒）⇒ 結果を表示</li>
@@ -613,14 +803,16 @@ export default function OCRCameraPage() {
             textShadow: "0 1px 4px rgba(0,0,0,.8)",
           }}
         >
-          {loading
-            ? "読み取り中..."
-            : isDetecting
-              ? `認識中... ${Math.min(
-                100,
-                Math.round((stableMs / STABLE_REQUIRED_MS) * 100)
-              )}%`
-              : "IDを枠内に合わせてください"}
+          {!openCvReady
+            ? "文字認識を準備しています..."
+            : loading
+              ? "読み取り中..."
+              : isDetecting
+                ? `認識中... ${Math.min(
+                  100,
+                  Math.round((stableMs / STABLE_REQUIRED_MS) * 100),
+                )}%`
+                : "IDを枠内に合わせてください"}
         </p>
       </div>
 
@@ -628,7 +820,7 @@ export default function OCRCameraPage() {
         <button
           type="button"
           onClick={toggleCamera}
-          disabled={loading}
+          disabled={loading || !openCvReady}
           style={{
             width: "100%",
             padding: "10px 16px",
