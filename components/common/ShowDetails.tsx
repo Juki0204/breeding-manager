@@ -58,12 +58,17 @@ export default function ShowDetails({ id }: ShowDetailsProps) {
         ヘラクレスオオカブト
       </h3>
       <div className="col-span-12 flex gap-1 items-center pb-3 font-normal text-xs">
-        亜種：ヘラクレス・ヘラクレス
+        亜種：原名亜種
       </div>
 
       <div className="col-span-12 flex gap-1 items-center pb-1 font-normal text-sm border-b border-neutral-200">
         <span className="py-px px-2 rounded-sm bg-green-700 text-white">産地</span>
-        グアドループ
+        フランス グアドループ産
+      </div>
+
+      <div className="col-span-12 flex gap-1 items-center pb-1 font-normal text-sm border-b border-neutral-200">
+        <span className="py-px px-2 rounded-sm bg-green-700 text-white">血統</span>
+        -
       </div>
 
       <div className="col-span-12 grid grid-cols-2 gap-1 items-center pb-1 font-normal text-sm border-b border-neutral-200">
@@ -73,15 +78,15 @@ export default function ShowDetails({ id }: ShowDetailsProps) {
         </div>
 
         <div className="flex gap-1 items-center">
-          <span className="py-px px-2 rounded-sm bg-green-700 text-white">サイズ</span>
-          150mm
+          <span className="py-px px-2 rounded-sm bg-green-700 text-white">累代</span>
+          CBF2
         </div>
       </div>
 
       <div className="col-span-12 grid grid-cols-2 gap-1 items-center pb-1 font-normal text-sm">
         <div className="flex gap-1 items-center">
-          <span className="py-px px-2 rounded-sm bg-green-700 text-white">血統</span>
-          -
+          <span className="py-px px-2 rounded-sm bg-green-700 text-white">サイズ</span>
+          150mm
         </div>
 
         <div className="flex gap-1 items-center">
@@ -94,7 +99,7 @@ export default function ShowDetails({ id }: ShowDetailsProps) {
         <textarea rows={4} className="w-full py-1 px-1.5 rounded-md border border-neutral-300" placeholder="メモを入力"></textarea>
       </div>
 
-      <div className="col-span-12 py-2 text-center rounded-md bg-blue-700 tracking-widest text-white">詳細</div>
+      <div className="col-span-12 py-2 text-center rounded-md bg-blue-700 tracking-widest text-white">飼育記録を見る</div>
     </div>
   )
 }
