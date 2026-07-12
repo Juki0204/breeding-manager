@@ -22,16 +22,13 @@ const MAX_CENTER_MOVE = 12;
 const MAX_SIZE_DIFF = 24;
 const MAX_DARK_RATE_DIFF = 0.04;
 
-// OpenCV.jsによる「文字列らしさ」判定
+// CCL（連結成分ラベリング）による文字らしさ判定
+const CCL_SAMPLE_STEP = 2;
 const MIN_COMPONENT_COUNT = 3;
+const MIN_COMPONENT_PIXELS = 2;
 const MIN_TEXT_ASPECT_RATIO = 1.3;
-const MAX_VERTICAL_CENTER_SPREAD_RATE = 0.6;
+const MAX_VERTICAL_CENTER_SPREAD_RATE = 0.65;
 const MAX_LARGEST_COMPONENT_RATE = 0.72;
-
-// 点状ノイズだけを除外するため、かなり緩めに設定
-const MIN_COMPONENT_AREA = 3;
-const MIN_COMPONENT_WIDTH = 2;
-const MIN_COMPONENT_HEIGHT = 2;
 
 type Rect = {
   x: number;
@@ -47,24 +44,14 @@ type DetectionSnapshot = {
   centerY: number;
 };
 
-type TextComponent = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  area: number;
+type ConnectedComponent = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  pixelCount: number;
   centerX: number;
   centerY: number;
-};
-
-type TextLikeAnalysis = {
-  components: TextComponent[];
-  bbox: Rect;
-};
-
-type OpenCv = typeof import("@techstark/opencv-js");
-type OpenCvModule = OpenCv & {
-  onRuntimeInitialized?: () => void;
 };
 
 type ScanPhase = "idle" | "scanning" | "detecting" | "ocr" | "done";
@@ -75,7 +62,6 @@ export default function OCRCameraPage() {
   const animationRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
-  const cvRef = useRef<OpenCv | null>(null);
 
   const cameraReadyRef = useRef(false);
   const loadingRef = useRef(false);
@@ -94,7 +80,6 @@ export default function OCRCameraPage() {
   const [phase, setPhase] = useState<ScanPhase>("idle");
   const [stableMs, setStableMs] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
-  const [openCvReady, setOpenCvReady] = useState(false);
 
   const [isSearching, setIsSearching] = useState<boolean>(false); //サーチ中フラグ
   const [searchFinished, setSearchFinished] = useState<boolean>(false); //サーチ完了フラグ
@@ -145,195 +130,210 @@ export default function OCRCameraPage() {
     setStableMs(0);
   };
 
-  const analyzeTextLikeComponents = (
+  /**
+   * 二値画像を8近傍で走査し、連結している暗色ピクセルを1つの塊として取得する。
+   * 監視処理は150msごとなので、元画像を2px刻みで縮小して負荷を抑える。
+   */
+  const findConnectedComponents = (
     imageData: ImageData,
-  ): TextLikeAnalysis | null => {
-    const cv = cvRef.current;
+    step: number
+  ): {
+    components: ConnectedComponent[];
+    darkRate: number;
+  } => {
+    const { data, width, height } = imageData;
+    const gridWidth = Math.ceil(width / step);
+    const gridHeight = Math.ceil(height / step);
+    const pixelTotal = gridWidth * gridHeight;
 
-    if (!cv) return null;
+    const binary = new Uint8Array(pixelTotal);
+    const visited = new Uint8Array(pixelTotal);
 
-    let src: InstanceType<OpenCv["Mat"]> | null = null;
-    let gray: InstanceType<OpenCv["Mat"]> | null = null;
-    let binary: InstanceType<OpenCv["Mat"]> | null = null;
-    let contours: InstanceType<OpenCv["MatVector"]> | null = null;
-    let hierarchy: InstanceType<OpenCv["Mat"]> | null = null;
+    let darkCount = 0;
 
-    try {
-      src = cv.matFromImageData(imageData);
-      gray = new cv.Mat();
-      binary = new cv.Mat();
-      contours = new cv.MatVector();
-      hierarchy = new cv.Mat();
+    // 画像を暗色=1、背景=0の二値データへ変換する。
+    for (let gridY = 0; gridY < gridHeight; gridY++) {
+      const sourceY = Math.min(gridY * step, height - 1);
 
-      // CanvasのRGBA画像をグレースケール化
-      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      for (let gridX = 0; gridX < gridWidth; gridX++) {
+        const sourceX = Math.min(gridX * step, width - 1);
+        const dataIndex = (sourceY * width + sourceX) * 4;
 
-      // 暗い文字・線を白、背景を黒に反転
-      cv.threshold(
-        gray,
-        binary,
-        DARK_LUMINANCE_THRESHOLD,
-        255,
-        cv.THRESH_BINARY_INV,
-      );
+        const r = data[dataIndex];
+        const g = data[dataIndex + 1];
+        const b = data[dataIndex + 2];
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
 
-      // 文字内部の穴を別カウントしないよう、外側輪郭だけ取得
-      cv.findContours(
-        binary,
-        contours,
-        hierarchy,
-        cv.RETR_EXTERNAL,
-        cv.CHAIN_APPROX_SIMPLE,
-      );
-
-      const components: TextComponent[] = [];
-
-      for (let index = 0; index < contours.size(); index++) {
-        const contour = contours.get(index);
-
-        try {
-          const area = cv.contourArea(contour);
-          const rect = cv.boundingRect(contour);
-
-          // ハイフンや#を残しつつ、点状ノイズだけ除外
-          if (
-            area < MIN_COMPONENT_AREA ||
-            rect.width < MIN_COMPONENT_WIDTH ||
-            rect.height < MIN_COMPONENT_HEIGHT
-          ) {
-            continue;
-          }
-
-          components.push({
-            x: rect.x,
-            y: rect.y,
-            w: rect.width,
-            h: rect.height,
-            area,
-            centerX: rect.x + rect.width / 2,
-            centerY: rect.y + rect.height / 2,
-          });
-        } finally {
-          contour.delete();
+        if (luminance < DARK_LUMINANCE_THRESHOLD) {
+          const binaryIndex = gridY * gridWidth + gridX;
+          binary[binaryIndex] = 1;
+          darkCount++;
         }
       }
-
-      // 条件1：文字の塊が3個以上ある
-      if (components.length < MIN_COMPONENT_COUNT) return null;
-
-      const minX = Math.min(...components.map((component) => component.x));
-      const minY = Math.min(...components.map((component) => component.y));
-      const maxX = Math.max(
-        ...components.map((component) => component.x + component.w),
-      );
-      const maxY = Math.max(
-        ...components.map((component) => component.y + component.h),
-      );
-
-      const bbox: Rect = {
-        x: minX,
-        y: minY,
-        w: maxX - minX,
-        h: maxY - minY,
-      };
-
-      if (bbox.w <= 0 || bbox.h <= 0) return null;
-
-      // 条件2：全体が横長
-      if (bbox.w / bbox.h < MIN_TEXT_ASPECT_RATIO) return null;
-
-      // 条件3：各輪郭が概ね横方向に並んでいる
-      // 文字サイズ自体は比較しないので、ハイフンや#の小ささは許容する
-      const centerYs = components.map((component) => component.centerY);
-      const centerYSpread = Math.max(...centerYs) - Math.min(...centerYs);
-
-      if (centerYSpread > bbox.h * MAX_VERTICAL_CENTER_SPREAD_RATE) {
-        return null;
-      }
-
-      // 条件4：1つの巨大な塊が全体を占有していない
-      const totalArea = components.reduce(
-        (total, component) => total + component.area,
-        0,
-      );
-      const largestArea = Math.max(
-        ...components.map((component) => component.area),
-      );
-
-      if (
-        totalArea <= 0 ||
-        largestArea / totalArea > MAX_LARGEST_COMPONENT_RATE
-      ) {
-        return null;
-      }
-
-      return { components, bbox };
-    } catch (error) {
-      console.error("OpenCV text detection error:", error);
-      return null;
-    } finally {
-      // OpenCV.jsのMatは必ず明示的に解放する
-      src?.delete();
-      gray?.delete();
-      binary?.delete();
-      contours?.delete();
-      hierarchy?.delete();
     }
+
+    const darkRate = darkCount / pixelTotal;
+
+    if (darkRate < MIN_DARK_RATE || darkRate > MAX_DARK_RATE) {
+      return { components: [], darkRate };
+    }
+
+    const components: ConnectedComponent[] = [];
+    const queue = new Int32Array(pixelTotal);
+
+    // 斜めにつながる手書き線も同じ塊として扱うため8近傍にする。
+    const neighbors = [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [-1, 0],
+      [1, 0],
+      [-1, 1],
+      [0, 1],
+      [1, 1],
+    ] as const;
+
+    for (let startY = 0; startY < gridHeight; startY++) {
+      for (let startX = 0; startX < gridWidth; startX++) {
+        const startIndex = startY * gridWidth + startX;
+
+        if (!binary[startIndex] || visited[startIndex]) continue;
+
+        let queueStart = 0;
+        let queueEnd = 0;
+        queue[queueEnd++] = startIndex;
+        visited[startIndex] = 1;
+
+        let minGridX = startX;
+        let minGridY = startY;
+        let maxGridX = startX;
+        let maxGridY = startY;
+        let pixelCount = 0;
+        let sumGridX = 0;
+        let sumGridY = 0;
+
+        while (queueStart < queueEnd) {
+          const currentIndex = queue[queueStart++];
+          const currentX = currentIndex % gridWidth;
+          const currentY = Math.floor(currentIndex / gridWidth);
+
+          pixelCount++;
+          sumGridX += currentX;
+          sumGridY += currentY;
+
+          minGridX = Math.min(minGridX, currentX);
+          minGridY = Math.min(minGridY, currentY);
+          maxGridX = Math.max(maxGridX, currentX);
+          maxGridY = Math.max(maxGridY, currentY);
+
+          for (const [offsetX, offsetY] of neighbors) {
+            const nextX = currentX + offsetX;
+            const nextY = currentY + offsetY;
+
+            if (
+              nextX < 0 ||
+              nextX >= gridWidth ||
+              nextY < 0 ||
+              nextY >= gridHeight
+            ) {
+              continue;
+            }
+
+            const nextIndex = nextY * gridWidth + nextX;
+
+            if (!binary[nextIndex] || visited[nextIndex]) continue;
+
+            visited[nextIndex] = 1;
+            queue[queueEnd++] = nextIndex;
+          }
+        }
+
+        // 1ピクセルだけの撮像ノイズを除外する。ハイフンを残すため条件は緩め。
+        if (pixelCount < MIN_COMPONENT_PIXELS) continue;
+
+        components.push({
+          minX: minGridX * step,
+          minY: minGridY * step,
+          maxX: Math.min((maxGridX + 1) * step, width),
+          maxY: Math.min((maxGridY + 1) * step, height),
+          pixelCount,
+          centerX: ((sumGridX / pixelCount) + 0.5) * step,
+          centerY: ((sumGridY / pixelCount) + 0.5) * step,
+        });
+      }
+    }
+
+    return { components, darkRate };
   };
 
   const detectTextLikeShape = (): DetectionSnapshot | null => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d", { willReadFrequently: true });
 
-    if (!canvas || !ctx || !cvRef.current) return null;
+    if (!canvas || !ctx) return null;
 
     const monitor = getMonitorRect();
     const imageData = ctx.getImageData(
       monitor.x,
       monitor.y,
       monitor.w,
-      monitor.h,
+      monitor.h
     );
 
-    const { data, width, height } = imageData;
+    const { components, darkRate } = findConnectedComponents(
+      imageData,
+      CCL_SAMPLE_STEP
+    );
 
-    // 既存の軽量な黒ピクセル率判定を第1ゲートとして残す
-    let darkCount = 0;
-    const step = 2;
+    // 条件1: 文字の塊が3個以上ある。
+    if (components.length < MIN_COMPONENT_COUNT) return null;
 
-    for (let y = 0; y < height; y += step) {
-      for (let x = 0; x < width; x += step) {
-        const index = (y * width + x) * 4;
-        const r = data[index];
-        const g = data[index + 1];
-        const b = data[index + 2];
-        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    const minX = Math.min(...components.map((component) => component.minX));
+    const minY = Math.min(...components.map((component) => component.minY));
+    const maxX = Math.max(...components.map((component) => component.maxX));
+    const maxY = Math.max(...components.map((component) => component.maxY));
 
-        if (luminance < DARK_LUMINANCE_THRESHOLD) {
-          darkCount++;
-        }
-      }
+    const bboxWidth = maxX - minX;
+    const bboxHeight = maxY - minY;
+
+    if (bboxWidth <= 0 || bboxHeight <= 0) return null;
+
+    // 条件2: 全体が横長。
+    if (bboxWidth / bboxHeight < MIN_TEXT_ASPECT_RATIO) return null;
+
+    if (bboxWidth < monitor.w * 0.12 || bboxHeight < 6) return null;
+
+    // 条件3: 各塊が横方向に並んでいる。
+    // 文字の大きさ自体は比較せず、各塊の中心Yの散らばりだけを見る。
+    const centerYs = components.map((component) => component.centerY);
+    const centerYSpread = Math.max(...centerYs) - Math.min(...centerYs);
+
+    if (centerYSpread > bboxHeight * MAX_VERTICAL_CENTER_SPREAD_RATE) {
+      return null;
     }
 
-    const sampledPixels = Math.ceil(width / step) * Math.ceil(height / step);
-    const darkRate = darkCount / sampledPixels;
+    // 条件4: 1つの巨大な塊だけが面積の大半を占めていない。
+    const totalPixels = components.reduce(
+      (total, component) => total + component.pixelCount,
+      0
+    );
+    const largestPixels = Math.max(
+      ...components.map((component) => component.pixelCount)
+    );
 
-    if (darkRate < MIN_DARK_RATE || darkRate > MAX_DARK_RATE) return null;
-
-    // 第2ゲート：OpenCVで4条件を満たす文字列形状か判定
-    const analysis = analyzeTextLikeComponents(imageData);
-
-    if (!analysis) return null;
+    if (
+      totalPixels <= 0 ||
+      largestPixels / totalPixels > MAX_LARGEST_COMPONENT_RATE
+    ) {
+      return null;
+    }
 
     const globalBox: Rect = {
-      x: monitor.x + analysis.bbox.x,
-      y: monitor.y + analysis.bbox.y,
-      w: analysis.bbox.w,
-      h: analysis.bbox.h,
+      x: monitor.x + minX,
+      y: monitor.y + minY,
+      w: bboxWidth,
+      h: bboxHeight,
     };
-
-    // 元の最低サイズ判定は維持
-    if (globalBox.w < monitor.w * 0.12 || globalBox.h < 6) return null;
 
     return {
       bbox: globalBox,
@@ -345,11 +345,11 @@ export default function OCRCameraPage() {
 
   const isSnapshotStable = (
     current: DetectionSnapshot,
-    prev: DetectionSnapshot,
+    prev: DetectionSnapshot
   ) => {
     const centerMove = Math.hypot(
       current.centerX - prev.centerX,
-      current.centerY - prev.centerY,
+      current.centerY - prev.centerY
     );
 
     const widthDiff = Math.abs(current.bbox.w - prev.bbox.w);
@@ -390,7 +390,7 @@ export default function OCRCameraPage() {
       0,
       0,
       cropCanvas.width,
-      cropCanvas.height,
+      cropCanvas.height
     );
 
     log(`drawImage: ${(performance.now() - imageStart).toFixed(0)}ms`);
@@ -446,9 +446,7 @@ export default function OCRCameraPage() {
       const createStart = performance.now();
       const dataUrl = await createOcrImage();
 
-      log(
-        `createOcrImage合計: ${(performance.now() - createStart).toFixed(0)}ms`,
-      );
+      log(`createOcrImage合計: ${(performance.now() - createStart).toFixed(0)}ms`);
 
       stopCamera();
 
@@ -509,11 +507,15 @@ export default function OCRCameraPage() {
     } catch (error) {
       console.error(error);
 
-      log(`ERROR: ${error instanceof Error ? error.message : "不明なエラー"}`);
+      log(
+        `ERROR: ${error instanceof Error ? error.message : "不明なエラー"
+        }`
+      );
 
       alert("OCR処理中にエラーが発生しました。");
       setPhase("idle");
       setIsSearching(false);
+
     } finally {
       setLoading(false);
       loadingRef.current = false;
@@ -524,7 +526,6 @@ export default function OCRCameraPage() {
   const runAutoDetection = (now: number) => {
     if (
       !cameraReadyRef.current ||
-      !cvRef.current ||
       loadingRef.current ||
       ocrRunningRef.current
     ) {
@@ -593,7 +594,17 @@ export default function OCRCameraPage() {
     const sx = (vw - sw) / 2;
     const sy = (vh - sh) / 2;
 
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.drawImage(
+      video,
+      sx,
+      sy,
+      sw,
+      sh,
+      0,
+      0,
+      CANVAS_SIZE,
+      CANVAS_SIZE
+    );
 
     runAutoDetection(now);
 
@@ -653,7 +664,7 @@ export default function OCRCameraPage() {
 
       log(
         `CAMERA ERROR: ${error instanceof Error ? error.message : "不明なエラー"
-        }`,
+        }`
       );
 
       alert("カメラを起動できませんでした。HTTPS環境で確認してください。");
@@ -676,53 +687,7 @@ export default function OCRCameraPage() {
     setIsSearching(false);
     setSearchFinished(false);
     setIsResultOpen(false);
-  };
-
-  useEffect(() => {
-    let mounted = true;
-
-    const initializeOpenCv = async () => {
-      try {
-        log("OpenCV.js読み込み開始");
-
-        const imported = await import("@techstark/opencv-js");
-        const importedWithDefault = imported as typeof imported & {
-          default?: OpenCvModule | Promise<OpenCvModule>;
-        };
-
-        const moduleCandidate = importedWithDefault.default ?? imported;
-        const cvModule = (await moduleCandidate) as OpenCvModule;
-
-        if (!cvModule.Mat) {
-          await new Promise<void>((resolve) => {
-            cvModule.onRuntimeInitialized = () => resolve();
-          });
-        }
-
-        if (!mounted) return;
-
-        cvRef.current = cvModule;
-        setOpenCvReady(true);
-        log("OpenCV.js読み込み完了");
-      } catch (error) {
-        console.error(error);
-        setOpenCvReady(false);
-        log(
-          `OpenCV ERROR: ${error instanceof Error
-            ? error.message
-            : "OpenCV.jsの初期化に失敗しました。"
-          }`,
-        );
-      }
-    };
-
-    void initializeOpenCv();
-
-    return () => {
-      mounted = false;
-      cvRef.current = null;
-    };
-  }, []);
+  }
 
   useEffect(() => {
     return () => {
@@ -803,16 +768,14 @@ export default function OCRCameraPage() {
             textShadow: "0 1px 4px rgba(0,0,0,.8)",
           }}
         >
-          {!openCvReady
-            ? "文字認識を準備しています..."
-            : loading
-              ? "読み取り中..."
-              : isDetecting
-                ? `認識中... ${Math.min(
-                  100,
-                  Math.round((stableMs / STABLE_REQUIRED_MS) * 100),
-                )}%`
-                : "IDを枠内に合わせてください"}
+          {loading
+            ? "読み取り中..."
+            : isDetecting
+              ? `認識中... ${Math.min(
+                100,
+                Math.round((stableMs / STABLE_REQUIRED_MS) * 100)
+              )}%`
+              : "IDを枠内に合わせてください"}
         </p>
       </div>
 
@@ -820,7 +783,7 @@ export default function OCRCameraPage() {
         <button
           type="button"
           onClick={toggleCamera}
-          disabled={loading || !openCvReady}
+          disabled={loading}
           style={{
             width: "100%",
             padding: "10px 16px",

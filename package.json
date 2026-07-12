@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
-    "@techstark/opencv-js": "^5.0.0-release.1",
     "dayjs": "^1.11.21",
     "lucide-react": "^1.21.0",
     "next": "16.2.9",
