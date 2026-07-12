@@ -14,8 +14,8 @@ const DETECTION_INTERVAL = 150;
 const STABLE_REQUIRED_MS = 900;
 const MARGIN_PX = 24;
 
-const DARK_LUMINANCE_THRESHOLD = 80;
-const MIN_DARK_RATE = 0.005;
+const DARK_LUMINANCE_THRESHOLD = 100;
+const MIN_DARK_RATE = 0.002;
 const MAX_DARK_RATE = 0.35;
 
 const MAX_CENTER_MOVE = 12;
@@ -23,12 +23,15 @@ const MAX_SIZE_DIFF = 24;
 const MAX_DARK_RATE_DIFF = 0.04;
 
 // CCL（連結成分ラベリング）による文字らしさ判定
-const CCL_SAMPLE_STEP = 2;
+const CCL_SAMPLE_STEP = 1;
 const MIN_COMPONENT_COUNT = 3;
-const MIN_COMPONENT_PIXELS = 2;
+const MIN_COMPONENT_PIXELS = 4;
 const MIN_TEXT_ASPECT_RATIO = 1.3;
 const MAX_VERTICAL_CENTER_SPREAD_RATE = 0.65;
 const MAX_LARGEST_COMPONENT_RATE = 0.72;
+
+const MIN_ALIGNED_COMPONENT_RATE = 0.7;
+const MAX_CENTER_Y_DISTANCE_RATE = 0.35;
 
 type Rect = {
   x: number;
@@ -303,12 +306,29 @@ export default function OCRCameraPage() {
 
     if (bboxWidth < monitor.w * 0.12 || bboxHeight < 6) return null;
 
-    // 条件3: 各塊が横方向に並んでいる。
-    // 文字の大きさ自体は比較せず、各塊の中心Yの散らばりだけを見る。
-    const centerYs = components.map((component) => component.centerY);
-    const centerYSpread = Math.max(...centerYs) - Math.min(...centerYs);
+    // 条件3: 文字候補の大部分が横方向に並んでいる
+    const sortedCenterYs = components
+      .map((component) => component.centerY)
+      .sort((a, b) => a - b);
 
-    if (centerYSpread > bboxHeight * MAX_VERTICAL_CENTER_SPREAD_RATE) {
+    const medianCenterY =
+      sortedCenterYs[Math.floor(sortedCenterYs.length / 2)];
+
+    const alignedComponents = components.filter((component) => {
+      const distanceFromMedian = Math.abs(
+        component.centerY - medianCenterY
+      );
+
+      return (
+        distanceFromMedian <=
+        bboxHeight * MAX_CENTER_Y_DISTANCE_RATE
+      );
+    });
+
+    const alignedRate =
+      alignedComponents.length / components.length;
+
+    if (alignedRate < MIN_ALIGNED_COMPONENT_RATE) {
       return null;
     }
 
